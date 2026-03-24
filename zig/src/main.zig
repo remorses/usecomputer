@@ -245,7 +245,7 @@ fn screenshotAction(args: Screenshot.Args, opts: Screenshot.Options) !void {
             });
         }
         if (agent_graphics_emitted) {
-            try stdout.print("The screenshot image is in your context. No need to read the file.\n", .{});
+            try stdout.print("Screenshot already loaded in the model context. No need to read it again.\n", .{});
         }
     }
 }
