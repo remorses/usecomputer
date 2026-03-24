@@ -3,6 +3,7 @@
 const std = @import("std");
 const zeke = @import("zeke");
 const lib = @import("usecomputer_lib");
+const table = @import("table.zig");
 
 const File = std.fs.File;
 const Writer = File.DeprecatedWriter;
@@ -583,6 +584,228 @@ fn mousePositionAction(_: MousePosition.Args, opts: MousePosition.Options) !void
     }
 }
 
+// ─── Table rendering for list commands ───
+
+fn jsonStr(value: std.json.Value) []const u8 {
+    return switch (value) {
+        .string => |s| s,
+        else => "",
+    };
+}
+
+fn jsonIntAlloc(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
+    return switch (value) {
+        .integer => |n| try std.fmt.allocPrint(allocator, "{d}", .{n}),
+        .float => |f| try std.fmt.allocPrint(allocator, "{d:.0}", .{f}),
+        else => try allocator.dupe(u8, "?"),
+    };
+}
+
+fn jsonBool(value: std.json.Value) []const u8 {
+    return switch (value) {
+        .bool => |b| if (b) "yes" else "no",
+        else => "no",
+    };
+}
+
+fn printDisplayTable(allocator: std.mem.Allocator, json_data: []const u8) !void {
+    const stdout = getStdout();
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, json_data, .{}) catch {
+        try stdout.print("{s}\n", .{json_data});
+        return;
+    };
+    defer parsed.deinit();
+
+    const items = switch (parsed.value) {
+        .array => |a| a.items,
+        else => {
+            try stdout.print("{s}\n", .{json_data});
+            return;
+        },
+    };
+
+    if (items.len == 0) {
+        try stdout.print("no displays\n", .{});
+        return;
+    }
+
+    const columns = &[_]table.Column{
+        .{ .header = "desktop" },
+        .{ .header = "primary" },
+        .{ .header = "size", .alignment = .right },
+        .{ .header = "position", .alignment = .right },
+        .{ .header = "id", .alignment = .right },
+        .{ .header = "scale", .alignment = .right },
+        .{ .header = "name" },
+    };
+
+    // Build rows — each row is an array of cell strings
+    var rows = std.ArrayListUnmanaged([]const []const u8).empty;
+    defer {
+        for (rows.items) |row| allocator.free(row);
+        rows.deinit(allocator);
+    }
+
+    // Buffers for formatted strings that outlive the loop iteration
+    var string_bufs = std.ArrayListUnmanaged([]u8).empty;
+    defer {
+        for (string_bufs.items) |buf| allocator.free(buf);
+        string_bufs.deinit(allocator);
+    }
+
+    for (items) |item| {
+        const obj = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+
+        const index_str = try jsonIntAlloc(allocator, obj.get("index") orelse continue);
+        try string_bufs.append(allocator, index_str);
+        const desktop_str = try std.fmt.allocPrint(allocator, "#{s}", .{index_str});
+        try string_bufs.append(allocator, desktop_str);
+
+        const w_str = try jsonIntAlloc(allocator, obj.get("width") orelse continue);
+        try string_bufs.append(allocator, w_str);
+        const h_str = try jsonIntAlloc(allocator, obj.get("height") orelse continue);
+        try string_bufs.append(allocator, h_str);
+        const size_str = try std.fmt.allocPrint(allocator, "{s}x{s}", .{ w_str, h_str });
+        try string_bufs.append(allocator, size_str);
+
+        const x_str = try jsonIntAlloc(allocator, obj.get("x") orelse continue);
+        try string_bufs.append(allocator, x_str);
+        const y_str = try jsonIntAlloc(allocator, obj.get("y") orelse continue);
+        try string_bufs.append(allocator, y_str);
+        const pos_str = try std.fmt.allocPrint(allocator, "{s},{s}", .{ x_str, y_str });
+        try string_bufs.append(allocator, pos_str);
+
+        const id_str = try jsonIntAlloc(allocator, obj.get("id") orelse continue);
+        try string_bufs.append(allocator, id_str);
+
+        const scale_str = try jsonIntAlloc(allocator, obj.get("scale") orelse continue);
+        try string_bufs.append(allocator, scale_str);
+
+        const name_val = obj.get("name") orelse continue;
+
+        const row = try allocator.alloc([]const u8, 7);
+        row[0] = desktop_str;
+        row[1] = jsonBool(obj.get("isPrimary") orelse .{ .bool = false });
+        row[2] = size_str;
+        row[3] = pos_str;
+        row[4] = id_str;
+        row[5] = scale_str;
+        row[6] = jsonStr(name_val);
+        try rows.append(allocator, row);
+    }
+
+    const lines = try table.render(allocator, columns, rows.items);
+    defer {
+        for (lines) |line| allocator.free(line);
+        allocator.free(lines);
+    }
+
+    for (lines) |line| {
+        try stdout.print("{s}\n", .{line});
+    }
+}
+
+fn printWindowTable(allocator: std.mem.Allocator, json_data: []const u8) !void {
+    const stdout = getStdout();
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, json_data, .{}) catch {
+        try stdout.print("{s}\n", .{json_data});
+        return;
+    };
+    defer parsed.deinit();
+
+    const items = switch (parsed.value) {
+        .array => |a| a.items,
+        else => {
+            try stdout.print("{s}\n", .{json_data});
+            return;
+        },
+    };
+
+    if (items.len == 0) {
+        try stdout.print("no windows\n", .{});
+        return;
+    }
+
+    const columns = &[_]table.Column{
+        .{ .header = "id", .alignment = .right },
+        .{ .header = "desktop", .alignment = .right },
+        .{ .header = "app" },
+        .{ .header = "pid", .alignment = .right },
+        .{ .header = "size", .alignment = .right },
+        .{ .header = "position", .alignment = .right },
+        .{ .header = "title" },
+    };
+
+    var rows = std.ArrayListUnmanaged([]const []const u8).empty;
+    defer {
+        for (rows.items) |row| allocator.free(row);
+        rows.deinit(allocator);
+    }
+
+    var string_bufs = std.ArrayListUnmanaged([]u8).empty;
+    defer {
+        for (string_bufs.items) |buf| allocator.free(buf);
+        string_bufs.deinit(allocator);
+    }
+
+    for (items) |item| {
+        const obj = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+
+        const id_str = try jsonIntAlloc(allocator, obj.get("id") orelse continue);
+        try string_bufs.append(allocator, id_str);
+
+        const di_str = try jsonIntAlloc(allocator, obj.get("desktopIndex") orelse continue);
+        try string_bufs.append(allocator, di_str);
+        const desktop_str = try std.fmt.allocPrint(allocator, "#{s}", .{di_str});
+        try string_bufs.append(allocator, desktop_str);
+
+        const pid_str = try jsonIntAlloc(allocator, obj.get("ownerPid") orelse continue);
+        try string_bufs.append(allocator, pid_str);
+
+        const w_str = try jsonIntAlloc(allocator, obj.get("width") orelse continue);
+        try string_bufs.append(allocator, w_str);
+        const h_str = try jsonIntAlloc(allocator, obj.get("height") orelse continue);
+        try string_bufs.append(allocator, h_str);
+        const size_str = try std.fmt.allocPrint(allocator, "{s}x{s}", .{ w_str, h_str });
+        try string_bufs.append(allocator, size_str);
+
+        const x_str = try jsonIntAlloc(allocator, obj.get("x") orelse continue);
+        try string_bufs.append(allocator, x_str);
+        const y_str = try jsonIntAlloc(allocator, obj.get("y") orelse continue);
+        try string_bufs.append(allocator, y_str);
+        const pos_str = try std.fmt.allocPrint(allocator, "{s},{s}", .{ x_str, y_str });
+        try string_bufs.append(allocator, pos_str);
+
+        const row = try allocator.alloc([]const u8, 7);
+        row[0] = id_str;
+        row[1] = desktop_str;
+        row[2] = jsonStr(obj.get("ownerName") orelse .{ .string = "" });
+        row[3] = pid_str;
+        row[4] = size_str;
+        row[5] = pos_str;
+        row[6] = jsonStr(obj.get("title") orelse .{ .string = "" });
+        try rows.append(allocator, row);
+    }
+
+    const lines = try table.render(allocator, columns, rows.items);
+    defer {
+        for (lines) |line| allocator.free(line);
+        allocator.free(lines);
+    }
+
+    for (lines) |line| {
+        try stdout.print("{s}\n", .{line});
+    }
+}
+
+// ─── List command actions ───
+
 fn displayListAction(_: DisplayList.Args, opts: DisplayList.Options) !void {
     const result = lib.displayList();
     if (!result.ok) {
@@ -590,11 +813,16 @@ fn displayListAction(_: DisplayList.Args, opts: DisplayList.Options) !void {
         return error.CommandFailed;
     }
     if (result.data) |data| {
-        const stdout = getStdout();
         if (opts.json) {
+            const stdout = getStdout();
             try stdout.print("{s}\n", .{data});
         } else {
-            try stdout.print("{s}\n", .{data});
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            defer _ = gpa.deinit();
+            printDisplayTable(gpa.allocator(), data) catch {
+                const stdout = getStdout();
+                try stdout.print("{s}\n", .{data});
+            };
         }
     }
 }
@@ -606,11 +834,16 @@ fn windowListAction(_: WindowList.Args, opts: WindowList.Options) !void {
         return error.CommandFailed;
     }
     if (result.data) |data| {
-        const stdout = getStdout();
         if (opts.json) {
+            const stdout = getStdout();
             try stdout.print("{s}\n", .{data});
         } else {
-            try stdout.print("{s}\n", .{data});
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            defer _ = gpa.deinit();
+            printWindowTable(gpa.allocator(), data) catch {
+                const stdout = getStdout();
+                try stdout.print("{s}\n", .{data});
+            };
         }
     }
 }
@@ -630,20 +863,31 @@ fn desktopListAction(_: DesktopList.Args, opts: DesktopList.Options) !void {
             return error.CommandFailed;
         }
         if (opts.json) {
-            // Combine displays and windows into one JSON object
             try stdout.print("{{\"displays\":{s},\"windows\":{s}}}\n", .{
                 if (display_result.data) |d| d else "[]",
                 if (window_result.data) |w| w else "[]",
             });
         } else {
-            if (display_result.data) |d| try stdout.print("{s}\n", .{d});
-            if (window_result.data) |w| try stdout.print("{s}\n", .{w});
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            defer _ = gpa.deinit();
+            const allocator = gpa.allocator();
+            if (display_result.data) |d| {
+                printDisplayTable(allocator, d) catch try stdout.print("{s}\n", .{d});
+            }
+            try stdout.print("\n", .{});
+            if (window_result.data) |w| {
+                printWindowTable(allocator, w) catch try stdout.print("{s}\n", .{w});
+            }
         }
     } else {
         if (opts.json) {
             if (display_result.data) |d| try stdout.print("{s}\n", .{d});
         } else {
-            if (display_result.data) |d| try stdout.print("{s}\n", .{d});
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            defer _ = gpa.deinit();
+            if (display_result.data) |d| {
+                printDisplayTable(gpa.allocator(), d) catch try stdout.print("{s}\n", .{d});
+            }
         }
     }
 }
