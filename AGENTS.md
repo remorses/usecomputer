@@ -227,3 +227,13 @@ To release:
 The CI publish job checks whether the version is already on npm and skips if
 so. This means you can push multiple commits to `main` and only the version
 bump commit triggers an actual publish.
+
+**After pushing a version bump, ALWAYS watch CI to confirm it publishes
+successfully:**
+
+```bash
+gh run watch --exit-status
+```
+
+Report the result to the user. Do not consider the release done until CI
+is green and the publish step has completed.
