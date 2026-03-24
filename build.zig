@@ -139,4 +139,16 @@ pub fn build(b: *std.Build) void {
     linkPlatformDeps(test_exe.root_module, target_os);
     const run_test = b.addRunArtifact(test_exe);
     test_step.dependOn(&run_test.step);
+
+    // Kitty graphics protocol tests
+    const kitty_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/src/kitty-graphics.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const kitty_test_exe = b.addTest(.{
+        .root_module = kitty_test_mod,
+    });
+    const run_kitty_test = b.addRunArtifact(kitty_test_exe);
+    test_step.dependOn(&run_kitty_test.step);
 }

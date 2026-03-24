@@ -4,6 +4,7 @@ const std = @import("std");
 const zeke = @import("zeke");
 const lib = @import("usecomputer_lib");
 const table = @import("table.zig");
+const kitty_graphics = @import("kitty-graphics.zig");
 
 const File = std.fs.File;
 const Writer = File.DeprecatedWriter;
@@ -125,11 +126,11 @@ fn printError(result: anytype) void {
     }
 }
 
-fn printScreenshotJson(data: lib.ScreenshotOutput) void {
+fn printScreenshotJson(data: lib.ScreenshotOutput, agent_graphics: bool) void {
     const stdout = getStdout();
     stdout.print(
-        "{{\"path\":\"{s}\",\"desktopIndex\":{d:.0},\"captureX\":{d:.0},\"captureY\":{d:.0},\"captureWidth\":{d:.0},\"captureHeight\":{d:.0},\"imageWidth\":{d:.0},\"imageHeight\":{d:.0}}}\n",
-        .{ data.path, data.desktopIndex, data.captureX, data.captureY, data.captureWidth, data.captureHeight, data.imageWidth, data.imageHeight },
+        "{{\"path\":\"{s}\",\"desktopIndex\":{d:.0},\"captureX\":{d:.0},\"captureY\":{d:.0},\"captureWidth\":{d:.0},\"captureHeight\":{d:.0},\"imageWidth\":{d:.0},\"imageHeight\":{d:.0},\"agentGraphics\":{s}}}\n",
+        .{ data.path, data.desktopIndex, data.captureX, data.captureY, data.captureWidth, data.captureHeight, data.imageWidth, data.imageHeight, if (agent_graphics) "true" else "false" },
     ) catch {};
 }
 
@@ -223,9 +224,12 @@ fn screenshotAction(args: Screenshot.Args, opts: Screenshot.Options) !void {
         printError(result);
         return error.CommandFailed;
     }
+
+    const agent_graphics = kitty_graphics.canEmitAgentGraphics();
+
     if (opts.json) {
         if (result.data) |data| {
-            printScreenshotJson(data);
+            printScreenshotJson(data, agent_graphics);
         }
     } else {
         const stdout = getStdout();
@@ -233,6 +237,31 @@ fn screenshotAction(args: Screenshot.Args, opts: Screenshot.Options) !void {
             try stdout.print("Screenshot saved to {s} ({d:.0}x{d:.0})\n", .{
                 data.path, data.imageWidth, data.imageHeight,
             });
+        }
+    }
+
+    // Emit the screenshot as Kitty Graphics Protocol escape sequences when
+    // AGENT_GRAPHICS=kitty is set. An agent plugin (kitty-graphics-agent)
+    // intercepts these and injects the image into the LLM context.
+    if (agent_graphics) {
+        if (result.data) |data| {
+            const stdout = getStdout();
+            const png_data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, data.path, 50 * 1024 * 1024) catch |err| {
+                const stderr = getStderr();
+                try stderr.print("warning: could not read screenshot for kitty graphics: {}\n", .{err});
+                return;
+            };
+            defer std.heap.page_allocator.free(png_data);
+            kitty_graphics.emitKittyGraphics(png_data, stdout) catch |err| {
+                const stderr = getStderr();
+                try stderr.print("warning: kitty graphics emission failed: {}\n", .{err});
+                return;
+            };
+            // In JSON mode, the JSON object already has "agentGraphics":true —
+            // don't print extra text to stdout (breaks single-JSON-object contract).
+            if (!opts.json) {
+                try stdout.print("The screenshot image is in your context. No need to read the file.\n", .{});
+            }
         }
     }
 }

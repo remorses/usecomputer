@@ -303,6 +303,32 @@ targeting:
 usecomputer debug-point -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
 ```
 
+## Kitty Graphics Protocol (agent-friendly screenshots)
+
+When the `AGENT_GRAPHICS` environment variable contains `kitty`, the
+`screenshot` command emits the PNG image inline to stdout using the
+[Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
+This lets AI agents receive screenshots in a single tool call — no separate
+file read needed.
+
+The protocol is supported by [kitty-graphics-agent](https://github.com/remorses/kitty-graphics-agent),
+an OpenCode plugin that intercepts Kitty Graphics escape sequences from CLI
+output and injects them as LLM-visible image attachments. To use it, add the
+plugin to your `opencode.json`:
+
+```json
+{
+  "plugin": ["kitty-graphics-agent"]
+}
+```
+
+The plugin sets `AGENT_GRAPHICS=kitty` in the shell environment automatically.
+When the agent runs `usecomputer screenshot`, the image appears directly in the
+model's context window.
+
+The JSON output includes `"agentGraphics": true` when the image was emitted
+inline, so programmatic consumers know the screenshot is already in context.
+
 ## Keyboard commands
 
 ### Type text
