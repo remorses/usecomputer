@@ -2020,6 +2020,127 @@ fn writeScreenshotPng(input: struct {
     }
 }
 
+/// Draw a red crosshair+circle debug marker on an existing PNG file (macOS only).
+/// Reads the PNG, draws the marker at (x, y) in image coordinates, writes back.
+pub fn drawMarkerOnPng(input: struct {
+    path: []const u8,
+    x: f64,
+    y: f64,
+    imageWidth: f64,
+    imageHeight: f64,
+}) CommandResult {
+    if (builtin.target.os.tag != .macos) {
+        return failCommand("drawMarkerOnPng", "UNSUPPORTED_PLATFORM", "debug-point image overlay is only supported on macOS");
+    }
+
+    // Load the existing PNG
+    const path_as_u8: [*]const u8 = @ptrCast(input.path.ptr);
+    const file_url = c.CFURLCreateFromFileSystemRepresentation(
+        null,
+        path_as_u8,
+        @as(c_long, @intCast(input.path.len)),
+        0,
+    );
+    if (file_url == null) return failCommand("drawMarkerOnPng", "LOAD_FAILED", "failed to create file URL");
+    defer c.CFRelease(file_url);
+
+    const source = c.CGImageSourceCreateWithURL(file_url, null);
+    if (source == null) return failCommand("drawMarkerOnPng", "LOAD_FAILED", "failed to load PNG");
+    defer c.CFRelease(source);
+
+    const image = c.CGImageSourceCreateImageAtIndex(source, 0, null);
+    if (image == null) return failCommand("drawMarkerOnPng", "LOAD_FAILED", "failed to decode PNG image");
+    defer c.CFRelease(image);
+
+    const w = c.CGImageGetWidth(image);
+    const h = c.CGImageGetHeight(image);
+
+    // Create bitmap context
+    const color_space = c.CGColorSpaceCreateDeviceRGB();
+    if (color_space == null) return failCommand("drawMarkerOnPng", "DRAW_FAILED", "failed to create color space");
+    defer c.CFRelease(color_space);
+
+    const ctx = c.CGBitmapContextCreate(
+        null,
+        w,
+        h,
+        8,
+        0,
+        color_space,
+        c.kCGImageAlphaPremultipliedLast,
+    );
+    if (ctx == null) return failCommand("drawMarkerOnPng", "DRAW_FAILED", "failed to create bitmap context");
+    defer c.CFRelease(ctx);
+
+    // Draw original image
+    const img_rect: c.CGRect = .{
+        .origin = .{ .x = 0, .y = 0 },
+        .size = .{ .width = @floatFromInt(w), .height = @floatFromInt(h) },
+    };
+    c.CGContextDrawImage(ctx, img_rect, image);
+
+    // Flip Y: CGContext origin is bottom-left, marker coords are top-left
+    const px = input.x;
+    const py = @as(f64, @floatFromInt(h)) - input.y;
+
+    const pi = std.math.pi;
+
+    // White crosshair (background for contrast)
+    c.CGContextSetRGBStrokeColor(ctx, 1, 1, 1, 0.95);
+    c.CGContextSetLineWidth(ctx, 5);
+    c.CGContextSetLineCap(ctx, 1); // kCGLineCapRound
+    c.CGContextMoveToPoint(ctx, px - 22, py);
+    c.CGContextAddLineToPoint(ctx, px + 22, py);
+    c.CGContextStrokePath(ctx);
+    c.CGContextMoveToPoint(ctx, px, py - 22);
+    c.CGContextAddLineToPoint(ctx, px, py + 22);
+    c.CGContextStrokePath(ctx);
+
+    // White ring
+    c.CGContextSetLineWidth(ctx, 4);
+    c.CGContextAddArc(ctx, px, py, 18, 0, 2 * pi, 0);
+    c.CGContextStrokePath(ctx);
+
+    // Red crosshair
+    c.CGContextSetRGBStrokeColor(ctx, 1, 0.176, 0.176, 1); // #ff2d2d
+    c.CGContextSetLineWidth(ctx, 3);
+    c.CGContextSetLineCap(ctx, 1);
+    c.CGContextMoveToPoint(ctx, px - 22, py);
+    c.CGContextAddLineToPoint(ctx, px + 22, py);
+    c.CGContextStrokePath(ctx);
+    c.CGContextMoveToPoint(ctx, px, py - 22);
+    c.CGContextAddLineToPoint(ctx, px, py + 22);
+    c.CGContextStrokePath(ctx);
+
+    // Red ring
+    c.CGContextSetLineWidth(ctx, 2);
+    c.CGContextAddArc(ctx, px, py, 18, 0, 2 * pi, 0);
+    c.CGContextStrokePath(ctx);
+
+    // Filled red center dot with white stroke
+    c.CGContextSetRGBFillColor(ctx, 1, 0.176, 0.176, 1);
+    c.CGContextAddArc(ctx, px, py, 10, 0, 2 * pi, 0);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBStrokeColor(ctx, 1, 1, 1, 1);
+    c.CGContextSetLineWidth(ctx, 3);
+    c.CGContextAddArc(ctx, px, py, 10, 0, 2 * pi, 0);
+    c.CGContextStrokePath(ctx);
+
+    // Get result image and write back
+    const result_image = c.CGBitmapContextCreateImage(ctx);
+    if (result_image == null) return failCommand("drawMarkerOnPng", "DRAW_FAILED", "failed to create result image");
+    defer c.CFRelease(result_image);
+
+    writeScreenshotPng(.{
+        .image = result_image,
+        .output_path = input.path,
+    }) catch {
+        return failCommand("drawMarkerOnPng", "WRITE_FAILED", "failed to write annotated PNG");
+    };
+
+    return okCommand();
+}
+
 fn resolveMouseButton(button: []const u8) !MouseButtonKind {
     if (std.ascii.eqlIgnoreCase(button, "left")) {
         return .left;

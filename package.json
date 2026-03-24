@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "type": "module",
   "description": "Fast computer automation CLI for AI agents. Control any desktop with accessibility snapshots, clicks, typing, scrolling, and more.",
-  "bin": "./bin.js",
+  "bin": "./bin.sh",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -35,12 +35,13 @@
     "zig",
     "build.zig",
     "build.zig.zon",
+    "bin.sh",
     "bin.js",
     "README.md",
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc && chmod +x bin.js",
+    "build": "tsc && chmod +x bin.js && chmod +x bin.sh",
     "build:zig": "zig build",
     "build:native": "tsx scripts/build.ts",
     "build:native:macos": "tsx scripts/build.ts darwin-arm64 darwin-x64",

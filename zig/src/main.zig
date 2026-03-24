@@ -15,6 +15,85 @@ fn getStderr() Writer {
     return File.stderr().deprecatedWriter();
 }
 
+// ─── Coord-map ───
+// Port of src/coord-map.ts — maps screenshot-space pixels to desktop coordinates.
+
+const CoordMap = struct {
+    captureX: f64,
+    captureY: f64,
+    captureWidth: f64,
+    captureHeight: f64,
+    imageWidth: f64,
+    imageHeight: f64,
+};
+
+fn parseCoordMap(s: []const u8) ?CoordMap {
+    var iter = std.mem.splitScalar(u8, s, ',');
+    const cx_str = iter.next() orelse return null;
+    const cy_str = iter.next() orelse return null;
+    const cw_str = iter.next() orelse return null;
+    const ch_str = iter.next() orelse return null;
+    const iw_str = iter.next() orelse return null;
+    const ih_str = iter.next() orelse return null;
+    const cx = std.fmt.parseFloat(f64, cx_str) catch return null;
+    const cy = std.fmt.parseFloat(f64, cy_str) catch return null;
+    const cw = std.fmt.parseFloat(f64, cw_str) catch return null;
+    const ch = std.fmt.parseFloat(f64, ch_str) catch return null;
+    const iw = std.fmt.parseFloat(f64, iw_str) catch return null;
+    const ih = std.fmt.parseFloat(f64, ih_str) catch return null;
+    if (cw <= 0 or ch <= 0 or iw <= 0 or ih <= 0) return null;
+    return .{
+        .captureX = cx,
+        .captureY = cy,
+        .captureWidth = cw,
+        .captureHeight = ch,
+        .imageWidth = iw,
+        .imageHeight = ih,
+    };
+}
+
+fn mapPointFromCoordMap(point: lib.Point, cm: ?CoordMap) lib.Point {
+    const m = cm orelse return point;
+    const iw_span = @max(m.imageWidth - 1, 1);
+    const ih_span = @max(m.imageHeight - 1, 1);
+    const cw_span = @max(m.captureWidth - 1, 0);
+    const ch_span = @max(m.captureHeight - 1, 0);
+    const max_cx = m.captureX + cw_span;
+    const max_cy = m.captureY + ch_span;
+    const mapped_x = m.captureX + (point.x / iw_span) * cw_span;
+    const mapped_y = m.captureY + (point.y / ih_span) * ch_span;
+    return .{
+        .x = @round(std.math.clamp(mapped_x, m.captureX, max_cx)),
+        .y = @round(std.math.clamp(mapped_y, m.captureY, max_cy)),
+    };
+}
+
+fn mapPointToCoordMap(point: lib.Point, cm: ?CoordMap) lib.Point {
+    const m = cm orelse return point;
+    const cw_span = @max(m.captureWidth - 1, 1);
+    const ch_span = @max(m.captureHeight - 1, 1);
+    const iw_span = @max(m.imageWidth - 1, 0);
+    const ih_span = @max(m.imageHeight - 1, 0);
+    const rel_x = (point.x - m.captureX) / cw_span;
+    const rel_y = (point.y - m.captureY) / ch_span;
+    const mapped_x = rel_x * iw_span;
+    const mapped_y = rel_y * ih_span;
+    return .{
+        .x = @round(std.math.clamp(mapped_x, 0, iw_span)),
+        .y = @round(std.math.clamp(mapped_y, 0, ih_span)),
+    };
+}
+
+fn getRegionFromCoordMap(cm: ?CoordMap) ?lib.ScreenshotRegion {
+    const m = cm orelse return null;
+    return .{
+        .x = m.captureX,
+        .y = m.captureY,
+        .width = m.captureWidth,
+        .height = m.captureHeight,
+    };
+}
+
 // ─── Helpers ───
 
 fn parseF64(s: []const u8) ?f64 {
@@ -63,19 +142,26 @@ const Screenshot = zeke.cmd("screenshot [path]", "Take a screenshot")
     .option("--json", "Output as JSON");
 
 const Click = zeke.cmd("click [target]", "Click at coordinates or target")
-    .option("-x <x>", "X coordinate")
-    .option("-y <y>", "Y coordinate")
+    .option("-x [x]", "X coordinate")
+    .option("-y [y]", "Y coordinate")
     .option("--button [button]", "Mouse button: left, right, middle")
-    .option("--count [count]", "Click count");
+    .option("--count [count]", "Click count")
+    .option("--modifiers [modifiers]", "Modifiers as ctrl,shift,alt,meta")
+    .option("--coord-map [map]", "Map screenshot-space pixels to desktop coordinates");
 
 const DebugPoint = zeke.cmd("debug-point [target]", "Validate click coordinates visually")
     .option("-x [x]", "X coordinate")
     .option("-y [y]", "Y coordinate")
+    .option("--coord-map [map]", "Map input coordinates from screenshot space")
     .option("--output [path]", "Save annotated screenshot")
     .option("--json", "Output as JSON");
 
 const TypeText = zeke.cmd("type [text]", "Type text using keyboard")
-    .option("--delay [ms]", "Delay between keystrokes in ms");
+    .option("--stdin", "Read text from stdin instead of [text] argument")
+    .option("--delay [ms]", "Delay between keystrokes in ms")
+    .option("--chunk-size [n]", "Split text into fixed-size chunks before typing")
+    .option("--chunk-delay [ms]", "Delay in milliseconds between chunks")
+    .option("--max-length [n]", "Fail when input text exceeds this maximum length");
 
 const Press = zeke.cmd("press <key>", "Press a key or key combination")
     .option("--count [n]", "Number of times to press")
@@ -86,15 +172,18 @@ const Scroll = zeke.cmd("scroll <direction> [amount]", "Scroll in a direction")
 
 const Drag = zeke.cmd("drag <from> <to>", "Drag from one point to another")
     .option("--duration [ms]", "Drag duration in ms")
-    .option("--button [button]", "Mouse button");
+    .option("--button [button]", "Mouse button")
+    .option("--coord-map [map]", "Map input coordinates from screenshot space");
 
-const Hover = zeke.cmd("hover", "Move mouse without clicking")
-    .option("-x <x>", "X coordinate")
-    .option("-y <y>", "Y coordinate");
+const Hover = zeke.cmd("hover [target]", "Move mouse without clicking")
+    .option("-x [x]", "X coordinate")
+    .option("-y [y]", "Y coordinate")
+    .option("--coord-map [map]", "Map input coordinates from screenshot space");
 
 const MouseMove = zeke.cmd("mouse move", "Move to absolute coordinates")
-    .option("-x <x>", "X coordinate")
-    .option("-y <y>", "Y coordinate");
+    .option("-x [x]", "X coordinate")
+    .option("-y [y]", "Y coordinate")
+    .option("--coord-map [map]", "Map input coordinates from screenshot space");
 
 const MouseDown = zeke.cmd("mouse down", "Press and hold mouse button")
     .option("--button [button]", "Mouse button");
@@ -109,6 +198,10 @@ const DisplayList = zeke.cmd("display list", "List connected displays")
     .option("--json", "Output as JSON");
 
 const WindowList = zeke.cmd("window list", "List open windows")
+    .option("--json", "Output as JSON");
+
+const DesktopList = zeke.cmd("desktop list", "List desktops as display indexes and sizes")
+    .option("--windows", "Include available windows grouped by desktop index")
     .option("--json", "Output as JSON");
 
 const ClipboardGet = zeke.cmd("clipboard get", "Print clipboard text");
@@ -143,11 +236,20 @@ fn screenshotAction(args: Screenshot.Args, opts: Screenshot.Options) !void {
     }
 }
 
-fn clickAction(_: Click.Args, opts: Click.Options) !void {
-    const x = parseF64(opts.x) orelse return error.InvalidCoordinate;
-    const y = parseF64(opts.y) orelse return error.InvalidCoordinate;
+fn clickAction(args: Click.Args, opts: Click.Options) !void {
+    const raw_point = resolvePoint(args.target, opts.x, opts.y) orelse {
+        const stderr = getStderr();
+        try stderr.print("error: coordinates required (-x and -y, or positional x,y)\n", .{});
+        return error.InvalidCoordinate;
+    };
+    const cm = if (opts.coord_map) |s| (parseCoordMap(s) orelse {
+        const stderr = getStderr();
+        try stderr.print("error: invalid --coord-map, expected x,y,width,height,imageWidth,imageHeight\n", .{});
+        return error.CommandFailed;
+    }) else null;
+    const point = mapPointFromCoordMap(raw_point, cm);
     const result = lib.click(.{
-        .point = .{ .x = x, .y = y },
+        .point = point,
         .button = opts.button,
         .count = if (opts.count) |c| parseF64(c) else null,
     });
@@ -157,24 +259,197 @@ fn clickAction(_: Click.Args, opts: Click.Options) !void {
     }
 }
 
-fn debugPointAction(_: DebugPoint.Args, _: DebugPoint.Options) !void {
+fn debugPointAction(args: DebugPoint.Args, opts: DebugPoint.Options) !void {
     const stderr = getStderr();
-    try stderr.print("debug-point: TODO\n", .{});
+    const stdout = getStdout();
+
+    // Resolve input point
+    const input_point = resolvePoint(args.target, opts.x, opts.y) orelse {
+        try stderr.print("error: coordinates required (-x and -y, or positional x,y)\n", .{});
+        return error.InvalidCoordinate;
+    };
+
+    // Parse coord-map and compute desktop point
+    const cm = if (opts.coord_map) |s| parseCoordMap(s) else null;
+    const desktop_point = mapPointFromCoordMap(input_point, cm);
+
+    // Take screenshot (using coord-map region if provided)
+    const output_path = opts.output orelse "./tmp/debug-point.png";
+    const screenshot_result = lib.screenshot(.{
+        .path = output_path,
+        .region = getRegionFromCoordMap(cm),
+    });
+    if (!screenshot_result.ok) {
+        printError(screenshot_result);
+        return error.CommandFailed;
+    }
+    const data = screenshot_result.data orelse {
+        try stderr.print("error: screenshot returned no data\n", .{});
+        return error.CommandFailed;
+    };
+
+    // Compute screenshot-space point for the marker
+    const screenshot_cm = CoordMap{
+        .captureX = data.captureX,
+        .captureY = data.captureY,
+        .captureWidth = data.captureWidth,
+        .captureHeight = data.captureHeight,
+        .imageWidth = data.imageWidth,
+        .imageHeight = data.imageHeight,
+    };
+    const screenshot_point = mapPointToCoordMap(desktop_point, screenshot_cm);
+
+    // Draw marker on the screenshot
+    const draw_result = lib.drawMarkerOnPng(.{
+        .path = data.path,
+        .x = screenshot_point.x,
+        .y = screenshot_point.y,
+        .imageWidth = data.imageWidth,
+        .imageHeight = data.imageHeight,
+    });
+    if (!draw_result.ok) {
+        // Non-fatal: print warning but still output coordinates
+        try stderr.print("warning: could not draw marker on screenshot\n", .{});
+    }
+
+    if (opts.json) {
+        stdout.print(
+            "{{\"path\":\"{s}\",\"inputPoint\":{{\"x\":{d:.0},\"y\":{d:.0}}},\"desktopPoint\":{{\"x\":{d:.0},\"y\":{d:.0}}},\"screenshotPoint\":{{\"x\":{d:.0},\"y\":{d:.0}}}}}\n",
+            .{
+                data.path,
+                input_point.x,
+                input_point.y,
+                desktop_point.x,
+                desktop_point.y,
+                screenshot_point.x,
+                screenshot_point.y,
+            },
+        ) catch {};
+    } else {
+        try stdout.print("{s}\n", .{data.path});
+        try stdout.print("input-point={d:.0},{d:.0}\n", .{ input_point.x, input_point.y });
+        try stdout.print("desktop-point={d:.0},{d:.0}\n", .{ desktop_point.x, desktop_point.y });
+        try stdout.print("screenshot-point={d:.0},{d:.0}\n", .{ screenshot_point.x, screenshot_point.y });
+    }
+}
+
+fn readAllStdin(allocator: std.mem.Allocator) ![]const u8 {
+    const stdin = std.fs.File.stdin();
+    var buf: [8192]u8 = undefined;
+    var list: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer list.deinit(allocator);
+    while (true) {
+        const n = stdin.read(&buf) catch return error.StdinReadFailed;
+        if (n == 0) break;
+        list.appendSlice(allocator, buf[0..n]) catch return error.StdinReadFailed;
+        if (list.items.len > 10 * 1024 * 1024) return error.StdinReadFailed;
+    }
+    return list.toOwnedSlice(allocator) catch return error.StdinReadFailed;
 }
 
 fn typeTextAction(args: TypeText.Args, opts: TypeText.Options) !void {
-    const text = args.text orelse {
-        const stderr = getStderr();
-        try stderr.print("error: text argument required\n", .{});
+    const stderr = getStderr();
+    const from_stdin = opts.stdin;
+
+    if (from_stdin and args.text != null) {
+        try stderr.print("error: use either [text] or --stdin, not both\n", .{});
         return error.MissingArgument;
-    };
-    const result = lib.typeText(.{
-        .text = text,
-        .delayMs = if (opts.delay) |d| parseF64(d) else null,
-    });
-    if (!result.ok) {
-        printError(result);
-        return error.CommandFailed;
+    }
+
+    // Get the text to type
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const text: []const u8 = if (from_stdin)
+        readAllStdin(allocator) catch {
+            try stderr.print("error: failed to read from stdin\n", .{});
+            return error.StdinReadFailed;
+        }
+    else
+        args.text orelse {
+            try stderr.print("error: text argument or --stdin required\n", .{});
+            return error.MissingArgument;
+        };
+    defer if (from_stdin) allocator.free(text);
+
+    // Check max-length
+    if (opts.max_length) |ml_str| {
+        const max_len = parseF64(ml_str) orelse {
+            try stderr.print("error: --max-length must be a positive number\n", .{});
+            return error.CommandFailed;
+        };
+        if (max_len <= 0) {
+            try stderr.print("error: --max-length must be a positive number\n", .{});
+            return error.CommandFailed;
+        }
+        if (@as(f64, @floatFromInt(text.len)) > max_len) {
+            try stderr.print("error: input text length {d} exceeds --max-length {d:.0}\n", .{ text.len, max_len });
+            return error.CommandFailed;
+        }
+    }
+
+    // Determine chunk size
+    const chunk_size: ?usize = if (opts.chunk_size) |cs_str| blk: {
+        const cs = parseF64(cs_str) orelse {
+            try stderr.print("error: --chunk-size must be a positive number\n", .{});
+            return error.CommandFailed;
+        };
+        if (cs <= 0) {
+            try stderr.print("error: --chunk-size must be a positive number\n", .{});
+            return error.CommandFailed;
+        }
+        break :blk @as(usize, @intFromFloat(cs));
+    } else null;
+
+    const chunk_delay_ns: ?u64 = if (opts.chunk_delay) |cd_str| blk: {
+        const cd = parseF64(cd_str) orelse {
+            try stderr.print("error: --chunk-delay must be a positive number\n", .{});
+            return error.CommandFailed;
+        };
+        if (cd < 0) {
+            try stderr.print("error: --chunk-delay must be a non-negative number\n", .{});
+            return error.CommandFailed;
+        }
+        break :blk @as(u64, @intFromFloat(cd * 1_000_000));
+    } else null;
+
+    if (chunk_size) |cs| {
+        // Type in chunks (split on UTF-8 boundaries to avoid breaking codepoints)
+        var offset: usize = 0;
+        while (offset < text.len) {
+            var end = @min(offset + cs, text.len);
+            // Walk back to a UTF-8 character boundary if we split mid-codepoint
+            while (end < text.len and end > offset and (text[end] & 0xC0) == 0x80) {
+                end -= 1;
+            }
+            if (end == offset) end = @min(offset + cs, text.len); // fallback if all continuation bytes
+            const chunk = text[offset..end];
+            const result = lib.typeText(.{
+                .text = chunk,
+                .delayMs = if (opts.delay) |d| parseF64(d) else null,
+            });
+            if (!result.ok) {
+                printError(result);
+                return error.CommandFailed;
+            }
+            offset = end;
+            if (offset < text.len) {
+                if (chunk_delay_ns) |delay| {
+                    std.Thread.sleep(delay);
+                }
+            }
+        }
+    } else {
+        // Type all at once
+        const result = lib.typeText(.{
+            .text = text,
+            .delayMs = if (opts.delay) |d| parseF64(d) else null,
+        });
+        if (!result.ok) {
+            printError(result);
+            return error.CommandFailed;
+        }
     }
 }
 
@@ -215,11 +490,12 @@ fn scrollAction(args: Scroll.Args, opts: Scroll.Options) !void {
 
 fn dragAction(args: Drag.Args, opts: Drag.Options) !void {
     // Parse "x,y" format for from and to
-    const from = parsePointArg(args.from) orelse return error.InvalidCoordinate;
-    const to = parsePointArg(args.to) orelse return error.InvalidCoordinate;
+    const from_raw = parsePointArg(args.from) orelse return error.InvalidCoordinate;
+    const to_raw = parsePointArg(args.to) orelse return error.InvalidCoordinate;
+    const cm = if (opts.coord_map) |s| parseCoordMap(s) else null;
     const result = lib.drag(.{
-        .from = from,
-        .to = to,
+        .from = mapPointFromCoordMap(from_raw, cm),
+        .to = mapPointFromCoordMap(to_raw, cm),
         .durationMs = if (opts.duration) |d| parseF64(d) else null,
         .button = opts.button,
     });
@@ -227,6 +503,18 @@ fn dragAction(args: Drag.Args, opts: Drag.Options) !void {
         printError(result);
         return error.CommandFailed;
     }
+}
+
+fn resolvePoint(target: ?[]const u8, opt_x: ?[]const u8, opt_y: ?[]const u8) ?lib.Point {
+    if (opt_x) |x_str| {
+        if (opt_y) |y_str| {
+            const x = parseF64(x_str) orelse return null;
+            const y = parseF64(y_str) orelse return null;
+            return .{ .x = x, .y = y };
+        }
+    }
+    if (target) |t| return parsePointArg(t);
+    return null;
 }
 
 fn parsePointArg(s: []const u8) ?lib.Point {
@@ -239,10 +527,10 @@ fn parsePointArg(s: []const u8) ?lib.Point {
     };
 }
 
-fn hoverAction(_: Hover.Args, opts: Hover.Options) !void {
-    const x = parseF64(opts.x) orelse return error.InvalidCoordinate;
-    const y = parseF64(opts.y) orelse return error.InvalidCoordinate;
-    const result = lib.hover(.{ .x = x, .y = y });
+fn hoverAction(args: Hover.Args, opts: Hover.Options) !void {
+    const point = resolvePoint(args.target, opts.x, opts.y) orelse return error.InvalidCoordinate;
+    const cm = if (opts.coord_map) |s| parseCoordMap(s) else null;
+    const result = lib.hover(mapPointFromCoordMap(point, cm));
     if (!result.ok) {
         printError(result);
         return error.CommandFailed;
@@ -250,9 +538,13 @@ fn hoverAction(_: Hover.Args, opts: Hover.Options) !void {
 }
 
 fn mouseMoveAction(_: MouseMove.Args, opts: MouseMove.Options) !void {
-    const x = parseF64(opts.x) orelse return error.InvalidCoordinate;
-    const y = parseF64(opts.y) orelse return error.InvalidCoordinate;
-    const result = lib.mouseMove(.{ .x = x, .y = y });
+    const x_str = opts.x orelse return error.InvalidCoordinate;
+    const y_str = opts.y orelse return error.InvalidCoordinate;
+    const x = parseF64(x_str) orelse return error.InvalidCoordinate;
+    const y = parseF64(y_str) orelse return error.InvalidCoordinate;
+    const cm = if (opts.coord_map) |s| parseCoordMap(s) else null;
+    const point = mapPointFromCoordMap(.{ .x = x, .y = y }, cm);
+    const result = lib.mouseMove(point);
     if (!result.ok) {
         printError(result);
         return error.CommandFailed;
@@ -323,6 +615,39 @@ fn windowListAction(_: WindowList.Args, opts: WindowList.Options) !void {
     }
 }
 
+fn desktopListAction(_: DesktopList.Args, opts: DesktopList.Options) !void {
+    const display_result = lib.displayList();
+    if (!display_result.ok) {
+        printError(display_result);
+        return error.CommandFailed;
+    }
+    const stdout = getStdout();
+
+    if (opts.windows) {
+        const window_result = lib.windowList();
+        if (!window_result.ok) {
+            printError(window_result);
+            return error.CommandFailed;
+        }
+        if (opts.json) {
+            // Combine displays and windows into one JSON object
+            try stdout.print("{{\"displays\":{s},\"windows\":{s}}}\n", .{
+                if (display_result.data) |d| d else "[]",
+                if (window_result.data) |w| w else "[]",
+            });
+        } else {
+            if (display_result.data) |d| try stdout.print("{s}\n", .{d});
+            if (window_result.data) |w| try stdout.print("{s}\n", .{w});
+        }
+    } else {
+        if (opts.json) {
+            if (display_result.data) |d| try stdout.print("{s}\n", .{d});
+        } else {
+            if (display_result.data) |d| try stdout.print("{s}\n", .{d});
+        }
+    }
+}
+
 fn clipboardGetAction(_: ClipboardGet.Args, _: ClipboardGet.Options) !void {
     const result = lib.clipboardGet();
     if (!result.ok) {
@@ -363,12 +688,13 @@ pub fn main() !void {
         MouseUp.bind(mouseUpAction),
         MousePosition.bind(mousePositionAction),
         DisplayList.bind(displayListAction),
+        DesktopList.bind(desktopListAction),
         WindowList.bind(windowListAction),
         ClipboardGet.bind(clipboardGetAction),
         ClipboardSet.bind(clipboardSetAction),
     }).init(gpa.allocator(), "usecomputer");
 
-    app.setVersion("0.0.4");
+    app.setVersion("0.1.2");
     app.run() catch |err| {
         switch (err) {
             error.CommandFailed, error.InvalidCoordinate, error.MissingArgument => {},

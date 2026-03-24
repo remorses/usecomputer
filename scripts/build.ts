@@ -44,6 +44,8 @@ function runCommand({ command, args, cwd }: { command: string; args: string[]; c
   })
 }
 
+const zigBinDirectory = path.join(rootDirectory, 'zig-out', 'bin')
+
 function resolveNativeBinaryPath(): Error | string {
   const candidates = ['usecomputer.node', 'usecomputer.dll', 'libusecomputer.so'].map((fileName) => {
     return path.join(zigOutputDirectory, fileName)
@@ -55,6 +57,15 @@ function resolveNativeBinaryPath(): Error | string {
     return new Error(`No native artifact found in ${zigOutputDirectory}`)
   }
   return found
+}
+
+function resolveStandaloneExePath(): string | undefined {
+  const candidates = ['usecomputer', 'usecomputer.exe'].map((fileName) => {
+    return path.join(zigBinDirectory, fileName)
+  })
+  return candidates.find((candidate) => {
+    return fs.existsSync(candidate)
+  })
 }
 
 async function buildTarget({ target }: { target: Target }): Promise<void> {
@@ -78,6 +89,18 @@ async function buildTarget({ target }: { target: Target }): Promise<void> {
   const targetDirectory = path.join(distDirectory, target.name)
   fs.mkdirSync(targetDirectory, { recursive: true })
   fs.copyFileSync(source, path.join(targetDirectory, 'usecomputer.node'))
+
+  // Also copy the standalone executable if it was built
+  const exePath = resolveStandaloneExePath()
+  if (exePath) {
+    const exeFileName = target.name.startsWith('win32') ? 'usecomputer.exe' : 'usecomputer'
+    const destExePath = path.join(targetDirectory, exeFileName)
+    fs.copyFileSync(exePath, destExePath)
+    // Ensure executable permission on unix
+    if (!target.name.startsWith('win32')) {
+      fs.chmodSync(destExePath, 0o755)
+    }
+  }
 }
 
 async function main(): Promise<void> {
