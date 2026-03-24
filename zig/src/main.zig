@@ -128,10 +128,17 @@ fn printError(result: anytype) void {
 
 fn printScreenshotJson(data: lib.ScreenshotOutput, agent_graphics: bool) void {
     const stdout = getStdout();
-    stdout.print(
-        "{{\"path\":\"{s}\",\"desktopIndex\":{d:.0},\"captureX\":{d:.0},\"captureY\":{d:.0},\"captureWidth\":{d:.0},\"captureHeight\":{d:.0},\"imageWidth\":{d:.0},\"imageHeight\":{d:.0},\"agentGraphics\":{s}}}\n",
-        .{ data.path, data.desktopIndex, data.captureX, data.captureY, data.captureWidth, data.captureHeight, data.imageWidth, data.imageHeight, if (agent_graphics) "true" else "false" },
-    ) catch {};
+    if (agent_graphics) {
+        stdout.print(
+            "{{\"path\":\"{s}\",\"desktopIndex\":{d:.0},\"captureX\":{d:.0},\"captureY\":{d:.0},\"captureWidth\":{d:.0},\"captureHeight\":{d:.0},\"imageWidth\":{d:.0},\"imageHeight\":{d:.0},\"agentGraphics\":true,\"hint\":\"Screenshot already loaded in the model context. No need to read it again.\"}}\n",
+            .{ data.path, data.desktopIndex, data.captureX, data.captureY, data.captureWidth, data.captureHeight, data.imageWidth, data.imageHeight },
+        ) catch {};
+    } else {
+        stdout.print(
+            "{{\"path\":\"{s}\",\"desktopIndex\":{d:.0},\"captureX\":{d:.0},\"captureY\":{d:.0},\"captureWidth\":{d:.0},\"captureHeight\":{d:.0},\"imageWidth\":{d:.0},\"imageHeight\":{d:.0},\"agentGraphics\":false}}\n",
+            .{ data.path, data.desktopIndex, data.captureX, data.captureY, data.captureWidth, data.captureHeight, data.imageWidth, data.imageHeight },
+        ) catch {};
+    }
 }
 
 // ─── Command definitions ───
