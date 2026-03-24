@@ -2,18 +2,12 @@
 
 # usecomputer
 
-`usecomputer` is a macOS desktop automation CLI for AI agents.
+`usecomputer` is a desktop automation CLI for AI agents. It works on macOS and
+Linux (X11).
 
-It can move the mouse, click, drag, and query cursor position using native
-Quartz events through a Zig N-API module.
-
-Keyboard synthesis (`type` and `press`) is also available. The native backend
-includes platform-specific key injection paths for macOS, Windows, and Linux
-X11.
-
-The package also exports the native commands as plain library functions, so you
-can `import * as usecomputer from "usecomputer"` and reuse the same screenshot,
-mouse, keyboard, and coord-map behavior from Node.js.
+Screenshot, mouse control (move, click, drag, scroll), and keyboard synthesis
+(`type` and `press`) are all available as CLI commands backed by a native Zig
+binary — no Node.js runtime required.
 
 ## Install
 
@@ -23,8 +17,8 @@ npm install -g usecomputer
 
 ## Requirements
 
-- macOS (Darwin)
-- Accessibility permission enabled for your terminal app
+- **macOS** — Accessibility permission enabled for your terminal app
+- **Linux** — X11 session with `DISPLAY` set (Wayland via XWayland works too)
 
 ## Quick start
 
