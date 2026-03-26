@@ -40,10 +40,13 @@ if [ "$PLATFORM" = "win32" ]; then
   NATIVE_BIN="${NATIVE_BIN}.exe"
 fi
 
-if [ ! -x "$NATIVE_BIN" ]; then
+if [ ! -f "$NATIVE_BIN" ]; then
   echo "error: native binary not found at ${NATIVE_BIN}" >&2
   echo "hint: run 'zig build' or install from npm to get prebuilt binaries" >&2
   exit 1
 fi
+
+# Ensure the binary is executable (npm tarballs may strip the +x bit)
+chmod +x "$NATIVE_BIN" 2>/dev/null || true
 
 exec "$NATIVE_BIN" "$@"

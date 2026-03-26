@@ -4,6 +4,13 @@
 
 All notable changes to `usecomputer` will be documented in this file.
 
+## 0.1.5
+
+- **Fix `bunx` compatibility** — the shell launcher now ensures the native binary
+  is executable before running it. npm tarballs can strip the `+x` bit on
+  non-bin files, which caused `bunx usecomputer` to fail with
+  "native binary not found" even though the binary was present.
+
 ## 0.1.4
 
 Same as 0.1.3 but published via CI with correct Linux binaries included.
