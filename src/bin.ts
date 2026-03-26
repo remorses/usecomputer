@@ -8,15 +8,17 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const supportedPlatforms = ['darwin', 'linux', 'win32'] as const
-const supportedArchs = ['arm64', 'x64'] as const
+// Targets that ship prebuilt binaries (must match scripts/build.ts)
+const supportedTargets = new Set(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'])
 
-if (!supportedPlatforms.includes(process.platform as any) || !supportedArchs.includes(process.arch as any)) {
-  process.stderr.write(`error: unsupported platform: ${process.platform}-${process.arch}\n`)
+const target = `${process.platform}-${process.arch}`
+
+if (!supportedTargets.has(target)) {
+  process.stderr.write(`error: unsupported platform: ${target}\n`)
+  process.stderr.write(`supported: ${[...supportedTargets].join(', ')}\n`)
   process.exit(1)
 }
 
-const target = `${process.platform}-${process.arch}`
 const binaryName = process.platform === 'win32' ? 'usecomputer.exe' : 'usecomputer'
 const binaryPath = join(__dirname, target, binaryName)
 
