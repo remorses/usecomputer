@@ -4,6 +4,30 @@
 
 All notable changes to `usecomputer` will be documented in this file.
 
+## 0.1.7
+
+1. **Fixed `usecomputer` command on Windows** — the npm `bin` entry now works from
+   CMD and PowerShell without needing Git Bash or MSYS2 in PATH. The launcher is
+   now a compiled TypeScript file (`dist/bin.js`) instead of a shell script:
+
+   ```bash
+   npm install -g usecomputer
+
+   # works in CMD, PowerShell, and all Unix shells
+   usecomputer screenshot ./shot.png --json
+   ```
+
+2. **Removed `clipboard get` and `clipboard set` commands** — these were only
+   implemented on Windows and returned `NOT_SUPPORTED` on macOS and Linux.
+   Use keyboard shortcuts instead:
+
+   ```bash
+   usecomputer press "cmd+c"   # copy (macOS)
+   usecomputer press "ctrl+c"  # copy (Windows/Linux)
+   usecomputer press "cmd+v"   # paste (macOS)
+   usecomputer press "ctrl+v"  # paste (Windows/Linux)
+   ```
+
 ## 0.1.6
 
 1. **Windows support** — all automation commands now work on Windows. The native
