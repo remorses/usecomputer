@@ -132,6 +132,4 @@ export interface UseComputerBridge {
   mousePosition(): Promise<Point>
   displayList(): Promise<DisplayInfo[]>
   windowList(): Promise<WindowInfo[]>
-  clipboardGet(): Promise<string>
-  clipboardSet(input: { text: string }): Promise<void>
 }

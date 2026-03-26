@@ -212,10 +212,6 @@ const DesktopList = zeke.cmd("desktop list", "List desktops as display indexes a
     .option("--windows", "Include available windows grouped by desktop index")
     .option("--json", "Output as JSON");
 
-const ClipboardGet = zeke.cmd("clipboard get", "Print clipboard text");
-
-const ClipboardSet = zeke.cmd("clipboard set <text>", "Set clipboard text");
-
 // ─── Action functions ───
 
 fn screenshotAction(args: Screenshot.Args, opts: Screenshot.Options) !void {
@@ -949,26 +945,6 @@ fn desktopListAction(_: DesktopList.Args, opts: DesktopList.Options) !void {
     }
 }
 
-fn clipboardGetAction(_: ClipboardGet.Args, _: ClipboardGet.Options) !void {
-    const result = lib.clipboardGet();
-    if (!result.ok) {
-        printError(result);
-        return error.CommandFailed;
-    }
-    if (result.data) |data| {
-        const stdout = getStdout();
-        try stdout.print("{s}\n", .{data});
-    }
-}
-
-fn clipboardSetAction(args: ClipboardSet.Args, _: ClipboardSet.Options) !void {
-    const result = lib.clipboardSet(.{ .text = args.text });
-    if (!result.ok) {
-        printError(result);
-        return error.CommandFailed;
-    }
-}
-
 // ─── Main ───
 
 pub fn main() !void {
@@ -991,8 +967,6 @@ pub fn main() !void {
         DisplayList.bind(displayListAction),
         DesktopList.bind(desktopListAction),
         WindowList.bind(windowListAction),
-        ClipboardGet.bind(clipboardGetAction),
-        ClipboardSet.bind(clipboardSetAction),
     }).init(gpa.allocator(), "usecomputer");
 
     const build_options = @import("build_options");

@@ -130,8 +130,6 @@ function unavailableBridge(): UseComputerBridge {
     mousePosition: fail,
     displayList: fail,
     windowList: fail,
-    clipboardGet: fail,
-    clipboardSet: fail,
   }
 }
 
@@ -375,23 +373,6 @@ export function createBridgeFromNative({ nativeModule }: { nativeModule: NativeM
       }
 
       return parsed.data
-    },
-    async clipboardGet(): Promise<string> {
-      const result = unwrapData({
-        result: nativeModule.clipboardGet(),
-        fallbackCommand: 'clipboardGet',
-      })
-      if (result instanceof Error) {
-        throw result
-      }
-      return result
-    },
-    async clipboardSet(input: { text: string }): Promise<void> {
-      const result = nativeModule.clipboardSet(input)
-      const maybeError = unwrapCommand({ result, fallbackCommand: 'clipboardSet' })
-      if (maybeError instanceof Error) {
-        throw maybeError
-      }
     },
   }
 }

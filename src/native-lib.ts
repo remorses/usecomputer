@@ -43,8 +43,6 @@ export interface NativeModule {
   mousePosition(): NativeDataResult<Point>
   displayList(): NativeDataResult<string>
   windowList(): NativeDataResult<string>
-  clipboardGet(): NativeDataResult<string>
-  clipboardSet(input: { text: string }): NativeCommandResult
 }
 
 function loadCandidate(path: string): NativeModule | null {

@@ -350,10 +350,6 @@ const ScrollInput = struct {
     at: ?Point = null,
 };
 
-const ClipboardSetInput = struct {
-    text: []const u8,
-};
-
 pub fn screenshot(input: ScreenshotInput) DataResult(ScreenshotOutput) {
     _ = input.annotate;
     const output_path = input.path orelse "./screenshot.png";
@@ -1847,27 +1843,6 @@ pub fn windowList() DataResult([]const u8) {
     return okData([]const u8, payload);
 }
 
-pub fn clipboardGet() DataResult([]const u8) {
-    if (builtin.target.os.tag == .windows) {
-        const value = clipboardGetWindows() catch {
-            return failData([]const u8, "clipboard-get", "READ_FAILED", "failed to read clipboard text");
-        };
-        return okData([]const u8, value);
-    }
-    return failData([]const u8, "clipboard-get", "NOT_SUPPORTED", "clipboard-get is not supported on this platform");
-}
-
-pub fn clipboardSet(input: ClipboardSetInput) CommandResult {
-    if (builtin.target.os.tag == .windows) {
-        clipboardSetWindows(input.text) catch {
-            return failCommand("clipboard-set", "WRITE_FAILED", "failed to set clipboard text");
-        };
-        return okCommand();
-    }
-
-    return failCommand("clipboard-set", "NOT_SUPPORTED", "clipboard-set is not supported on this platform");
-}
-
 pub fn typeText(input: TypeTextInput) CommandResult {
     switch (builtin.target.os.tag) {
         .macos => {
@@ -3079,116 +3054,6 @@ fn utf8ToUtf16AllocZ(input: []const u8) ![]u16 {
     return out;
 }
 
-fn openClipboardWithRetry() !void {
-    if (builtin.target.os.tag != .windows) {
-        return error.UnsupportedPlatform;
-    }
-
-    var attempt: u8 = 0;
-    while (attempt < 5) : (attempt += 1) {
-        if (c_windows.OpenClipboard(null) != 0) {
-            return;
-        }
-        c_windows.Sleep(100);
-    }
-
-    return error.ClipboardOpenFailed;
-}
-
-fn clipboardGetWindows() ![]u8 {
-    if (builtin.target.os.tag != .windows) {
-        return error.UnsupportedPlatform;
-    }
-
-    try openClipboardWithRetry();
-    defer _ = c_windows.CloseClipboard();
-
-    const data_handle = c_windows.GetClipboardData(c_windows.CF_UNICODETEXT);
-    if (data_handle == null) {
-        return error.ClipboardReadFailed;
-    }
-
-    const data_ptr = c_windows.GlobalLock(data_handle) orelse return error.ClipboardReadFailed;
-    defer _ = c_windows.GlobalUnlock(data_handle);
-
-    const wide_ptr: [*:0]const u16 = @ptrCast(@alignCast(data_ptr));
-    const wide_len = c_windows.lstrlenW(wide_ptr);
-    if (wide_len <= 0) {
-        return std.heap.c_allocator.dupe(u8, "");
-    }
-
-    const utf8_len = c_windows.WideCharToMultiByte(
-        c_windows.CP_UTF8,
-        0,
-        wide_ptr,
-        wide_len,
-        null,
-        0,
-        null,
-        null,
-    );
-    if (utf8_len <= 0) {
-        return error.EncodingFailed;
-    }
-
-    const out = try std.heap.c_allocator.alloc(u8, @as(usize, @intCast(utf8_len)));
-    errdefer std.heap.c_allocator.free(out);
-
-    const written = c_windows.WideCharToMultiByte(
-        c_windows.CP_UTF8,
-        0,
-        wide_ptr,
-        wide_len,
-        out.ptr,
-        utf8_len,
-        null,
-        null,
-    );
-    if (written <= 0) {
-        return error.EncodingFailed;
-    }
-
-    return out[0..@as(usize, @intCast(written))];
-}
-
-fn clipboardSetWindows(text: []const u8) !void {
-    if (builtin.target.os.tag != .windows) {
-        return error.UnsupportedPlatform;
-    }
-
-    const wide = try utf8ToUtf16AllocZ(text);
-    defer std.heap.c_allocator.free(wide);
-
-    const byte_len = wide.len * @sizeOf(u16);
-    const memory_handle = c_windows.GlobalAlloc(c_windows.GMEM_MOVEABLE, byte_len);
-    if (memory_handle == null) {
-        return error.ClipboardWriteFailed;
-    }
-
-    const memory_ptr = c_windows.GlobalLock(memory_handle) orelse {
-        _ = c_windows.GlobalFree(memory_handle);
-        return error.ClipboardWriteFailed;
-    };
-    @memcpy(@as([*]u8, @ptrCast(memory_ptr))[0..byte_len], std.mem.sliceAsBytes(wide));
-    _ = c_windows.GlobalUnlock(memory_handle);
-
-    openClipboardWithRetry() catch {
-        _ = c_windows.GlobalFree(memory_handle);
-        return error.ClipboardOpenFailed;
-    };
-    defer _ = c_windows.CloseClipboard();
-
-    if (c_windows.EmptyClipboard() == 0) {
-        _ = c_windows.GlobalFree(memory_handle);
-        return error.ClipboardWriteFailed;
-    }
-
-    if (c_windows.SetClipboardData(c_windows.CF_UNICODETEXT, memory_handle) == null) {
-        _ = c_windows.GlobalFree(memory_handle);
-        return error.ClipboardWriteFailed;
-    }
-}
-
 fn openX11Display() !*c_x11.Display {
     if (builtin.target.os.tag != .linux) {
         return error.UnsupportedPlatform;
@@ -3278,8 +3143,6 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi
     try js.setNamedProperty(exports, "mousePosition", try js.createFunction(mousePosition));
     try js.setNamedProperty(exports, "displayList", try js.createFunction(displayList));
     try js.setNamedProperty(exports, "windowList", try js.createFunction(windowList));
-    try js.setNamedProperty(exports, "clipboardGet", try js.createFunction(clipboardGet));
-    try js.setNamedProperty(exports, "clipboardSet", try js.createFunction(clipboardSet));
     return exports;
 }
 

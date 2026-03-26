@@ -19,7 +19,6 @@ export type NativePressInput = Parameters<NativeModule['press']>[0]
 export type NativeScrollInput = Parameters<NativeModule['scroll']>[0]
 export type NativeDragInput = Parameters<NativeModule['drag']>[0]
 export type NativeMouseButtonInput = Parameters<NativeModule['mouseDown']>[0]
-export type NativeClipboardSetInput = Parameters<NativeModule['clipboardSet']>[0]
 
 export async function screenshot(input: NativeScreenshotInput): Promise<ScreenshotResult> {
   return bridge.screenshot({
@@ -102,14 +101,6 @@ export async function displayList(): Promise<DisplayInfo[]> {
 
 export async function windowList(): Promise<WindowInfo[]> {
   return bridge.windowList()
-}
-
-export async function clipboardGet(): Promise<string> {
-  return bridge.clipboardGet()
-}
-
-export async function clipboardSet(input: NativeClipboardSetInput): Promise<void> {
-  return bridge.clipboardSet(input)
 }
 
 function normalizeMouseButton(input: MouseButton | null): MouseButton {

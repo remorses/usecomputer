@@ -74,14 +74,5 @@ describe('native bridge contract', () => {
       expect(typeof firstWindow.desktopIndex).toBe('number')
     }
 
-    // -- Clipboard --
-    if (isWindows) {
-      const payload = `bridge-contract-test-${Date.now()}`
-      await bridge.clipboardSet({ text: payload })
-      await expect(bridge.clipboardGet()).resolves.toBe(payload)
-    } else {
-      await expect(bridge.clipboardSet({ text: 'bridge-contract-test' })).rejects.toThrow(/not (supported|implemented)/)
-      await expect(bridge.clipboardGet()).rejects.toThrow(/not (supported|implemented)/)
-    }
   })
 })
