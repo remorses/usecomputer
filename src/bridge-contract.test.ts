@@ -3,6 +3,7 @@
 
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { createBridgeFromNative } from './bridge.js'
 import { native } from './native-lib.js'
@@ -34,7 +35,7 @@ describe('native bridge contract', () => {
     })
 
     // -- Screenshot --
-    const screenshotPath = `${process.cwd()}/tmp/bridge-contract-shot.png`
+    const screenshotPath = path.join(os.tmpdir(), 'bridge-contract-shot.png')
     const shot = await bridge.screenshot({ path: screenshotPath })
     expect(shot.captureWidth).toBeGreaterThan(0)
     expect(shot.captureHeight).toBeGreaterThan(0)
