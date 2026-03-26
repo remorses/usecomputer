@@ -22,6 +22,7 @@ fn linkPlatformDeps(mod: *std.Build.Module, target_os: std.Target.Os.Tag) void {
     }
     if (target_os == .windows) {
         mod.linkSystemLibrary("user32", .{});
+        mod.linkSystemLibrary("gdi32", .{});
     }
 }
 

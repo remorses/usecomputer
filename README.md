@@ -2,8 +2,8 @@
 
 # usecomputer
 
-`usecomputer` is a desktop automation CLI for AI agents. It works on macOS and
-Linux (X11).
+`usecomputer` is a desktop automation CLI for AI agents. It works on macOS,
+Linux (X11), and Windows.
 
 Screenshot, mouse control (move, click, drag, scroll), and keyboard synthesis
 (`type` and `press`) are all available as CLI commands backed by a native Zig
@@ -19,6 +19,7 @@ npm install -g usecomputer
 
 - **macOS** — Accessibility permission enabled for your terminal app
 - **Linux** — X11 session with `DISPLAY` set (Wayland via XWayland works too)
+- **Windows** — run in an interactive desktop session (automation input is blocked on locked desktop)
 
 ## Quick start
 
@@ -322,6 +323,74 @@ model's context window.
 
 The JSON output includes `"agentGraphics": true` when the image was emitted
 inline, so programmatic consumers know the screenshot is already in context.
+
+## Drag commands
+
+Drag moves the mouse while holding a button down. Coordinates are `x,y` pairs.
+The format is `drag <from> <to> [cp]` where `cp` is an optional quadratic
+bezier control point that curves the path.
+
+```bash
+# Straight line drag (2 points)
+usecomputer drag 100,200 500,600
+
+# Curved drag (3 points — cp pulls the curve toward it)
+usecomputer drag 100,200 500,600 300,50
+
+# With coord-map from a screenshot
+usecomputer drag 100,200 500,600 --coord-map "0,0,1600,900,1568,882"
+```
+
+Duration is computed automatically from arc length at ~500 px/s (average human
+drawing speed). Shorter drags are faster, longer drags take proportionally more
+time.
+
+### Bezier control point
+
+The optional third argument `[cp]` is a quadratic bezier control point. It
+"pulls" the curve toward itself — the cursor does NOT pass through it:
+
+```
+Straight (2 points):           Curved (3 points):
+
+                                        * cp
+from ──────────────── to        from . ´  ` .
+                                    ´        ` .
+                                   ´            to
+```
+
+### Drawing circles and ellipses
+
+A circle at center `(cx, cy)` with radius `r` uses 4 quadratic bezier arcs.
+Each arc goes between two cardinal points (top, right, bottom, left), with the
+control point at the bounding box corner between them:
+
+```bash
+# Circle at center (400, 300) radius 50
+usecomputer drag 400,250 450,300 450,250   # top → right,    cp = top-right corner
+usecomputer drag 450,300 400,350 450,350   # right → bottom, cp = bottom-right corner
+usecomputer drag 400,350 350,300 350,350   # bottom → left,  cp = bottom-left corner
+usecomputer drag 350,300 400,250 350,250   # left → top,     cp = top-left corner
+```
+
+The pattern for any circle:
+
+```
+drag cx,cy-r   cx+r,cy   cx+r,cy-r    # top → right
+drag cx+r,cy   cx,cy+r   cx+r,cy+r    # right → bottom
+drag cx,cy+r   cx-r,cy   cx-r,cy+r    # bottom → left
+drag cx-r,cy   cx,cy-r   cx-r,cy-r    # left → top
+```
+
+For an ellipse, use different `rx` and `ry` instead of `r`:
+
+```bash
+# Ellipse at center (400, 300) rx=30 ry=80
+usecomputer drag 400,220 430,300 430,220   # top → right
+usecomputer drag 430,300 400,380 430,380   # right → bottom
+usecomputer drag 400,380 370,300 370,380   # bottom → left
+usecomputer drag 370,300 400,220 370,220   # left → top
+```
 
 ## Keyboard commands
 

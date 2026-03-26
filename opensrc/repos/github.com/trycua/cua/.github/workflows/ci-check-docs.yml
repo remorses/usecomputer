@@ -1,0 +1,150 @@
+name: "CI: Check Docs"
+
+on:
+  pull_request:
+    paths:
+      # Lume (Swift)
+      - "libs/lume/src/**"
+      # Cua CLI (TypeScript)
+      - "libs/typescript/cua-cli/src/**"
+      # MCP Server (Python)
+      - "libs/python/mcp-server/src/**"
+      # Computer SDK
+      - "libs/python/computer/computer/**"
+      - "libs/typescript/computer/src/**"
+      # Agent SDK
+      - "libs/python/agent/agent/**"
+      - "libs/typescript/agent/src/**"
+      # Cua-Bot
+      - "libs/cuabot/src/**"
+      # Documentation files themselves
+      - "docs/content/docs/cua/reference/**"
+      - "docs/content/docs/cuabot/reference/**"
+      # Generator scripts
+      - "scripts/docs-generators/**"
+
+jobs:
+  check-docs-sync:
+    name: Check Documentation Sync
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Need full history for git tags (version discovery) and changed file detection
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node dependencies
+        run: pnpm install
+        working-directory: docs
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python doc dependencies
+        run: pip install -r scripts/docs-generators/requirements.txt
+
+      - name: Determine changed generators
+        id: changed
+        run: |
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Check which generators need to run
+          GENERATORS=""
+
+          # Lume changes
+          if echo "$CHANGED_FILES" | grep -q "^libs/lume/src/"; then
+            GENERATORS="$GENERATORS lume"
+          fi
+
+          # Cua CLI changes
+          if echo "$CHANGED_FILES" | grep -q "^libs/typescript/cua-cli/src/"; then
+            GENERATORS="$GENERATORS cua-cli"
+          fi
+
+          # MCP Server changes
+          if echo "$CHANGED_FILES" | grep -q "^libs/python/mcp-server/src/"; then
+            GENERATORS="$GENERATORS mcp-server"
+          fi
+
+          # Python SDK changes (Computer and Agent)
+          if echo "$CHANGED_FILES" | grep -q "^libs/python/computer/computer/\|^libs/python/agent/agent/"; then
+            GENERATORS="$GENERATORS python-sdk"
+          fi
+
+          # Cua-Bot changes
+          if echo "$CHANGED_FILES" | grep -q "^libs/cuabot/src/"; then
+            GENERATORS="$GENERATORS cuabot"
+          fi
+
+          # Generator changes should run all
+          if echo "$CHANGED_FILES" | grep -q "^scripts/docs-generators/"; then
+            GENERATORS="all"
+          fi
+
+          echo "generators=$GENERATORS" >> $GITHUB_OUTPUT
+
+      - name: Build Lume (if needed)
+        if: contains(steps.changed.outputs.generators, 'lume') || steps.changed.outputs.generators == 'all'
+        run: swift build -c release
+        working-directory: libs/lume
+
+      - name: Run documentation check
+        run: |
+          GENERATORS="${{ steps.changed.outputs.generators }}"
+
+          if [ -z "$GENERATORS" ]; then
+            echo "No documentation-related changes detected."
+            exit 0
+          fi
+
+          if [ "$GENERATORS" = "all" ]; then
+            npx tsx scripts/docs-generators/runner.ts --check
+          else
+            for gen in $GENERATORS; do
+              echo "Checking generator: $gen"
+              npx tsx scripts/docs-generators/runner.ts --library "$gen" --check
+            done
+          fi
+        working-directory: .
+
+      - name: Show help if check failed
+        if: failure()
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════════════════╗"
+          echo "║                    Documentation Out of Sync!                        ║"
+          echo "╠═══════════════════════════════════════════════════════════════════════╣"
+          echo "║                                                                      ║"
+          echo "║  The documentation has drifted from the source code.                 ║"
+          echo "║                                                                      ║"
+          echo "║  To regenerate all docs, run from the repository root:               ║"
+          echo "║                                                                      ║"
+          echo "║    npx tsx scripts/docs-generators/runner.ts                         ║"
+          echo "║                                                                      ║"
+          echo "║  Or for a specific library:                                          ║"
+          echo "║                                                                      ║"
+          echo "║    npx tsx scripts/docs-generators/runner.ts --library lume          ║"
+          echo "║    npx tsx scripts/docs-generators/runner.ts --library python-sdk    ║"
+          echo "║    npx tsx scripts/docs-generators/runner.ts --library cuabot        ║"
+          echo "║                                                                      ║"
+          echo "║  For versioned docs and changelogs (after tagging a new release):    ║"
+          echo "║                                                                      ║"
+          echo "║    npx tsx scripts/docs-generators/generate-versioned-docs.ts        ║"
+          echo "║    npx tsx scripts/docs-generators/generate-changelog.ts             ║"
+          echo "║                                                                      ║"
+          echo "║  Then commit the updated documentation files.                        ║"
+          echo "║                                                                      ║"
+          echo "╚═══════════════════════════════════════════════════════════════════════╝"

@@ -1,0 +1,29 @@
+name: Type Checking
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    paths:
+      - "**/requirements.txt"
+      - "**/*.py"
+
+jobs:
+  mypy:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.10"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+      - run: pip install -r "requirements.txt"
+      - run: mypy . --python-version=${{ matrix.python-version }}

@@ -1,0 +1,15 @@
+mypy==1.19.1
+arro3-compute
+arro3-core
+IceSpringPySideStubs-PyQt6
+IceSpringPySideStubs-PySide6
+ipython
+numpy
+packaging
+pyarrow-stubs
+pybind11
+pytest
+types-atheris
+types-defusedxml
+types-olefile
+types-setuptools

@@ -1,0 +1,204 @@
+[build-system]
+build-backend = "backend"
+requires = [
+  "pybind11",
+  "setuptools>=77",
+]
+backend-path = [
+  "_custom_build",
+]
+
+[project]
+name = "pillow"
+description = "Python Imaging Library (fork)"
+readme = "README.md"
+keywords = [
+  "Imaging",
+]
+license = "MIT-CMU"
+license-files = [ "LICENSE" ]
+authors = [
+  { name = "Jeffrey A. Clark", email = "aclark@aclark.net" },
+]
+requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 6 - Mature",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+  "Topic :: Multimedia :: Graphics",
+  "Topic :: Multimedia :: Graphics :: Capture :: Digital Camera",
+  "Topic :: Multimedia :: Graphics :: Capture :: Screen Capture",
+  "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+  "Topic :: Multimedia :: Graphics :: Viewers",
+  "Typing :: Typed",
+]
+dynamic = [
+  "version",
+]
+optional-dependencies.docs = [
+  "furo",
+  "olefile",
+  "sphinx>=8.2",
+  "sphinx-autobuild",
+  "sphinx-copybutton",
+  "sphinx-inline-tabs",
+  "sphinxext-opengraph",
+]
+optional-dependencies.fpx = [
+  "olefile",
+]
+optional-dependencies.mic = [
+  "olefile",
+]
+optional-dependencies.test-arrow = [
+  "arro3-compute",
+  "arro3-core",
+  "nanoarrow",
+  "pyarrow",
+]
+optional-dependencies.tests = [
+  "check-manifest",
+  "coverage>=7.4.2",
+  "defusedxml",
+  "markdown2",
+  "olefile",
+  "packaging",
+  "pyroma>=5",
+  "pytest",
+  "pytest-cov",
+  "pytest-timeout",
+  "pytest-xdist",
+  "trove-classifiers>=2024.10.12",
+]
+optional-dependencies.xmp = [
+  "defusedxml",
+]
+urls."Release notes" = "https://pillow.readthedocs.io/en/stable/releasenotes/index.html"
+urls.Changelog = "https://github.com/python-pillow/Pillow/releases"
+urls.Documentation = "https://pillow.readthedocs.io"
+urls.Funding = "https://tidelift.com/subscription/pkg/pypi-pillow?utm_source=pypi-pillow&utm_medium=pypi"
+urls.Homepage = "https://python-pillow.github.io"
+urls.Mastodon = "https://fosstodon.org/@pillow"
+urls.Source = "https://github.com/python-pillow/Pillow"
+
+[tool.setuptools]
+packages = [
+  "PIL",
+]
+include-package-data = true
+package-dir = { "" = "src" }
+dynamic.version = { attr = "PIL.__version__" }
+
+[tool.cibuildwheel]
+before-all = ".github/workflows/wheels-dependencies.sh"
+build-verbosity = 1
+config-settings = "raqm=enable raqm=vendor fribidi=vendor imagequant=disable"
+test-command = "cd {project} && .github/workflows/wheels-test.sh"
+test-extras = "tests"
+test-requires = [
+  "numpy",
+]
+xbuild-tools = []
+# Disable platform guessing on iOS, and disable raqm (since there won't be a
+# vendor version, and we can't distribute it due to licensing)
+ios.config-settings = "raqm=disable imagequant=disable platform-guessing=disable"
+# iOS needs to be given a specific pytest invocation and list of test sources.
+ios.test-sources = [
+  "checks",
+  "Tests",
+  "selftest.py",
+]
+ios.test-command = [
+  "python -m selftest",
+  "python -m pytest -vv -x -W always checks/check_wheel.py Tests",
+]
+# There's no numpy wheel for iOS (yet...)
+ios.test-requires = []
+# Disable platform guessing on macOS to avoid picking up Homebrew etc.
+macos.config-settings = "raqm=enable raqm=vendor fribidi=vendor imagequant=disable platform-guessing=disable"
+# Isolate macOS build environment from Homebrew etc.
+macos.environment.PATH = "$(pwd)/build/deps/darwin/bin:$(dirname $(which python3)):/usr/bin:/bin:/usr/sbin:/sbin:/Library/Apple/usr/bin"
+overrides = [
+  # iOS environment is isolated by cibuildwheel, but needs the dependencies
+  { select = "*_iphoneos", environment.PATH = "$(pwd)/build/deps/iphoneos/bin:$PATH" },
+  # iOS simulator environment is isolated by cibuildwheel, but needs the dependencies
+  { select = "*_iphonesimulator", environment.PATH = "$(pwd)/build/deps/iphonesimulator/bin:$PATH" },
+  { select = "*-win32", test-requires = [] },
+]
+
+[tool.black]
+exclude = "wheels/multibuild"
+
+[tool.ruff]
+exclude = [ "wheels/multibuild" ]
+fix = true
+lint.select = [
+  "C4",     # flake8-comprehensions
+  "E",      # pycodestyle errors
+  "EM",     # flake8-errmsg
+  "F",      # pyflakes errors
+  "I",      # isort
+  "ISC",    # flake8-implicit-str-concat
+  "LOG",    # flake8-logging
+  "PGH",    # pygrep-hooks
+  "PIE",    # flake8-pie
+  "PT",     # flake8-pytest-style
+  "PYI",    # flake8-pyi
+  "RUF100", # unused noqa (yesqa)
+  "UP",     # pyupgrade
+  "W",      # pycodestyle warnings
+  "YTT",    # flake8-2020
+]
+lint.ignore = [
+  "E203",   # Whitespace before ':'
+  "E221",   # Multiple spaces before operator
+  "E226",   # Missing whitespace around arithmetic operator
+  "E241",   # Multiple spaces after ','
+  "PIE790", # flake8-pie: unnecessary-placeholder
+  "PT001",  # pytest-fixture-incorrect-parentheses-style
+  "PT007",  # pytest-parametrize-values-wrong-type
+  "PT011",  # pytest-raises-too-broad
+  "PT012",  # pytest-raises-with-multiple-statements
+  "PT017",  # pytest-assert-in-except
+  "PYI034", # flake8-pyi: typing.Self added in Python 3.11
+]
+lint.per-file-ignores."Tests/oss-fuzz/fuzz_font.py" = [
+  "I002",
+]
+lint.per-file-ignores."Tests/oss-fuzz/fuzz_pillow.py" = [
+  "I002",
+]
+lint.flake8-pytest-style.parametrize-names-type = "csv"
+lint.isort.known-first-party = [
+  "PIL",
+]
+lint.isort.required-imports = [
+  "from __future__ import annotations",
+]
+
+[tool.pyproject-fmt]
+max_supported_python = "3.14"
+
+[tool.pytest]
+addopts = [ "-ra", "--color=auto" ]
+testpaths = [
+  "Tests",
+]
+
+[tool.mypy]
+python_version = "3.10"
+pretty = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+enable_error_code = "ignore-without-code"
+extra_checks = true
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_ignores = true

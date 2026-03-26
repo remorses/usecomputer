@@ -67,7 +67,7 @@ export async function drag(input: NativeDragInput): Promise<void> {
   return bridge.drag({
     from: input.from,
     to: input.to,
-    durationMs: input.durationMs ?? undefined,
+    cp: input.cp ?? undefined,
     button: normalizeMouseButton(input.button),
   })
 }

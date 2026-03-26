@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import pickle
+from pathlib import Path
+
+import pytest
+
+from PIL import Image, ImageDraw, ImageFont
+
+from .helper import assert_image_equal, skip_unless_feature
+
+FONT_SIZE = 20
+FONT_PATH = "Tests/fonts/DejaVuSans/DejaVuSans.ttf"
+
+
+def helper_pickle_file(
+    tmp_path: Path, protocol: int, test_file: str, mode: str | None
+) -> None:
+    # Arrange
+    with Image.open(test_file) as im:
+        filename = tmp_path / "temp.pkl"
+        converted_im = im.convert(mode) if mode else im
+
+        # Act
+        with open(filename, "wb") as f:
+            pickle.dump(converted_im, f, protocol)
+        with open(filename, "rb") as f:
+            loaded_im = pickle.load(f)
+
+        # Assert
+        assert converted_im == loaded_im
+
+
+def helper_pickle_string(protocol: int, test_file: str, mode: str | None) -> None:
+    with Image.open(test_file) as im:
+        converted_im = im.convert(mode) if mode else im
+
+        # Act
+        dumped_string = pickle.dumps(converted_im, protocol)
+        loaded_im = pickle.loads(dumped_string)
+
+        # Assert
+        assert converted_im == loaded_im
+
+
+@pytest.mark.parametrize(
+    "test_file, test_mode",
+    [
+        ("Tests/images/hopper.jpg", None),
+        ("Tests/images/hopper.jpg", "L"),
+        ("Tests/images/hopper.jpg", "PA"),
+        pytest.param(
+            "Tests/images/hopper.webp", None, marks=skip_unless_feature("webp")
+        ),
+        ("Tests/images/hopper.tif", None),
+        ("Tests/images/test-card.png", None),
+        ("Tests/images/eps/zero_bb.png", None),
+        ("Tests/images/eps/zero_bb_scale2.png", None),
+        ("Tests/images/eps/non_zero_bb.png", None),
+        ("Tests/images/eps/non_zero_bb_scale2.png", None),
+        ("Tests/images/p_trns_single.png", None),
+        ("Tests/images/pil123p.png", None),
+        ("Tests/images/itxt_chunks.png", None),
+    ],
+)
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+def test_pickle_image(
+    tmp_path: Path, test_file: str, test_mode: str | None, protocol: int
+) -> None:
+    # Act / Assert
+    helper_pickle_string(protocol, test_file, test_mode)
+    helper_pickle_file(tmp_path, protocol, test_file, test_mode)
+
+
+def test_pickle_jpeg() -> None:
+    # Arrange
+    with Image.open("Tests/images/hopper.jpg") as image:
+        # Act: roundtrip
+        unpickled_image = pickle.loads(pickle.dumps(image))
+
+    # Assert
+    assert unpickled_image.filename == "Tests/images/hopper.jpg"
+    assert len(unpickled_image.layer) == 3
+    assert unpickled_image.layers == 3
+
+
+def test_pickle_la_mode_with_palette(tmp_path: Path) -> None:
+    # Arrange
+    filename = tmp_path / "temp.pkl"
+    with Image.open("Tests/images/hopper.jpg") as im:
+        im_pa = im.convert("PA")
+
+    # Act / Assert
+    for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+        im_pa._mode = "LA"
+        with open(filename, "wb") as f:
+            pickle.dump(im_pa, f, protocol)
+        with open(filename, "rb") as f:
+            loaded_im = pickle.load(f)
+
+        im_pa._mode = "PA"
+        assert im_pa == loaded_im
+
+
+@skip_unless_feature("webp")
+def test_pickle_tell() -> None:
+    # Arrange
+    with Image.open("Tests/images/hopper.webp") as image:
+        # Act: roundtrip
+        unpickled_image = pickle.loads(pickle.dumps(image))
+
+    # Assert
+    assert unpickled_image.tell() == 0
+
+
+def helper_assert_pickled_font_images(
+    font1: ImageFont.FreeTypeFont, font2: ImageFont.FreeTypeFont
+) -> None:
+    # Arrange
+    im1 = Image.new(mode="RGBA", size=(300, 100))
+    im2 = Image.new(mode="RGBA", size=(300, 100))
+    draw1 = ImageDraw.Draw(im1)
+    draw2 = ImageDraw.Draw(im2)
+    txt = "Hello World!"
+
+    # Act
+    draw1.text((10, 10), txt, font=font1)
+    draw2.text((10, 10), txt, font=font2)
+
+    # Assert
+    assert_image_equal(im1, im2)
+
+
+@skip_unless_feature("freetype2")
+@pytest.mark.parametrize("protocol", list(range(pickle.HIGHEST_PROTOCOL + 1)))
+def test_pickle_font_string(protocol: int) -> None:
+    # Arrange
+    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    # Act: roundtrip
+    pickled_font = pickle.dumps(font, protocol)
+    unpickled_font = pickle.loads(pickled_font)
+
+    # Assert
+    helper_assert_pickled_font_images(font, unpickled_font)
+
+
+@skip_unless_feature("freetype2")
+@pytest.mark.parametrize("protocol", list(range(pickle.HIGHEST_PROTOCOL + 1)))
+def test_pickle_font_file(tmp_path: Path, protocol: int) -> None:
+    # Arrange
+    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+    filename = tmp_path / "temp.pkl"
+
+    # Act: roundtrip
+    with open(filename, "wb") as f:
+        pickle.dump(font, f, protocol)
+    with open(filename, "rb") as f:
+        unpickled_font = pickle.load(f)
+
+    # Assert
+    helper_assert_pickled_font_images(font, unpickled_font)
+
+
+def test_load_earlier_data() -> None:
+    im = pickle.loads(
+        b"\x80\x04\x95@\x00\x00\x00\x00\x00\x00\x00\x8c\x12PIL.PngImagePlugin"
+        b"\x94\x8c\x0cPngImageFile\x94\x93\x94)\x81\x94]\x94(}\x94\x8c\x01L\x94K\x01"
+        b"K\x01\x86\x94NC\x01\x00\x94eb."
+    )
+    assert im.mode == "L"
+    assert im.size == (1, 1)

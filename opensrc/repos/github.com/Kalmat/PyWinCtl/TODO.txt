@@ -1,0 +1,41 @@
+Linux:
+- Test other combinations (especially for sendBehind()). Tested OK: Ubuntu/GNOME and Mint/Cinnamon
+- acceptInput()
+    - Test in all cases:  moving, resizing, remap, close, ...
+    - Is it possible to make the window completely transparent to input (click-thru) in GNOME?
+
+Windows:
+- win32gui.GetMenu() not working in Windows 11 (?!?!?!?!)
+- alwaysOnTop(): Now working with GDI, not with windows using DirectDraw exclusive mode
+                 The solution seems to be hooking the d3d dll and force it to draw your own application as well
+                 Is this possible with Python, or combining C++ and Python???
+        https://stackoverflow.com/questions/7009080/detecting-full-screen-mode-in-windows
+        https://stackoverflow.com/questions/7928308/displaying-another-application-on-top-of-a-directdraw-full-screen-application
+        https://www.codeproject.com/articles/730/apihijack-a-library-for-easy-dll-function-hooking?fid=1267&df=90&mpp=25&sort=Position&view=Normal&spc=Relaxed&select=116946&fr=73&prof=True
+        https://guidedhacking.com/threads/d3d9-hooking.8481/
+        https://stackoverflow.com/questions/25601362/transparent-window-on-top-of-immersive-full-screen-mode
+        https://github.com/jtsiomb/frapix/blob/master/src/frapix.c -> see overlay()
+        https://gist.github.com/Lurkki14/87342b4573e4348c2e762850579041b1
+        https://github.com/hiitiger/goverlay - https://github.com/hiitiger/goverlay/blob/master/doc/doc.md
+        https://learn.microsoft.com/es-es/windows/win32/medfound/hardware-overlay-support?redirectedfrom=MSDN
+        https://www.unknowncheats.me/forum/direct3d/236522-python-directx-overlay.html
+- alwaysOnBottom(): Try to find other smarter methods to keep window at the bottom (now it's a thread)
+
+macOS / AppleScript:
+- Test in an actual macOS multi-monitor (preferably 3+ monitors) system
+- In general, find a way to optimize all AppScript calls in terms of time and resources
+        https://discussions.apple.com/thread/1877444
+        https://discussions.apple.com/thread/2189505
+- getAllWindows()/getAllTitles()/getAllAppsNames()/getAllAppsWindowsTitles(): Find a way to return windows in same stack order than on screen
+- alwaysOnTop(): Try to find other smarter methods to keep window on top (now it's a thread)
+- alwaysOnBottom(): Try to find other smarter methods to keep window at the bottom (now it's a thread)
+- sendBehind(): Is it even possible???
+- acceptInput(): Is it even possible???
+- isAlerting(): Is it even possible???
+
+macOS / NSWindow:
+- acceptInput(): check (not sure if it really works now)
+
+General:
+- [Type_check] PyRect: Create type stubs or add to base library
+- [Type_check] Return to "full" type-checking.yml version

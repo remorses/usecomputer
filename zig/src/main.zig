@@ -179,8 +179,7 @@ const Press = zeke.cmd("press <key>", "Press a key or key combination")
 const Scroll = zeke.cmd("scroll <direction> [amount]", "Scroll in a direction")
     .option("--at [coords]", "Scroll at specific coordinates (x,y)");
 
-const Drag = zeke.cmd("drag <from> <to>", "Drag from one point to another")
-    .option("--duration [ms]", "Drag duration in ms")
+const Drag = zeke.cmd("drag <from> <to> [cp]", "Drag from x,y to x,y. Optional [cp] is a quadratic bezier control point that curves the path. Line: drag 100,200 500,600. Curve: drag 100,200 500,600 300,50. Circle (4 arcs at cx,cy r): drag cx,cy-r cx+r,cy cx+r,cy-r then drag cx+r,cy cx,cy+r cx+r,cy+r then drag cx,cy+r cx-r,cy cx-r,cy+r then drag cx-r,cy cx,cy-r cx-r,cy-r. Duration auto-computed from distance at 500px/s.")
     .option("--button [button]", "Mouse button")
     .option("--coord-map [map]", "Map input coordinates from screenshot space");
 
@@ -547,14 +546,15 @@ fn scrollAction(args: Scroll.Args, opts: Scroll.Options) !void {
 }
 
 fn dragAction(args: Drag.Args, opts: Drag.Options) !void {
-    // Parse "x,y" format for from and to
+    // Parse "x,y" format for from, to, and optional bezier control point
     const from_raw = parsePointArg(args.from) orelse return error.InvalidCoordinate;
     const to_raw = parsePointArg(args.to) orelse return error.InvalidCoordinate;
+    const cp_raw = if (args.cp) |cp_str| parsePointArg(cp_str) else null;
     const cm = if (opts.coord_map) |s| parseCoordMap(s) else null;
     const result = lib.drag(.{
         .from = mapPointFromCoordMap(from_raw, cm),
         .to = mapPointFromCoordMap(to_raw, cm),
-        .durationMs = if (opts.duration) |d| parseF64(d) else null,
+        .cp = if (cp_raw) |cp| mapPointFromCoordMap(cp, cm) else null,
         .button = opts.button,
     });
     if (!result.ok) {

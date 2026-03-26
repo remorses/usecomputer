@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+from PIL import Image
+
+
+def test_white() -> None:
+    with Image.open("Tests/images/lab.tif") as i:
+        i.load()
+
+        assert i.mode == "LAB"
+
+        assert i.getbands() == ("L", "A", "B")
+
+        k = i.getpixel((0, 0))
+
+        L = i.get_flattened_data(0)
+        a = i.get_flattened_data(1)
+        b = i.get_flattened_data(2)
+
+    assert k == (255, 128, 128)
+
+    assert L == (255,) * 100
+    assert a == (128,) * 100
+    assert b == (128,) * 100
+
+
+def test_green() -> None:
+    # l= 50 (/100), a = -100 (-128 .. 128) b=0 in PS
+    # == RGB: 0, 152, 117
+    with Image.open("Tests/images/lab-green.tif") as i:
+        k = i.getpixel((0, 0))
+    assert k == (128, 28, 128)
+
+
+def test_red() -> None:
+    # l= 50 (/100), a = 100 (-128 .. 128) b=0 in PS
+    # == RGB: 255, 0, 124
+    with Image.open("Tests/images/lab-red.tif") as i:
+        k = i.getpixel((0, 0))
+    assert k == (128, 228, 128)

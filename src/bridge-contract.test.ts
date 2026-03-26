@@ -8,6 +8,7 @@ import { createBridgeFromNative } from './bridge.js'
 import { native } from './native-lib.js'
 
 const isMacOS = os.platform() === 'darwin'
+const isWindows = os.platform() === 'win32'
 
 describe('native bridge contract', () => {
   test('bridge calls hit real Zig module', async () => {
@@ -30,7 +31,6 @@ describe('native bridge contract', () => {
       from: safeTarget,
       to: { x: safeTarget.x + 6, y: safeTarget.y + 6 },
       button: 'left',
-      durationMs: 10,
     })
 
     // -- Screenshot --
@@ -64,7 +64,7 @@ describe('native bridge contract', () => {
     expect(typeof firstDisplay.index).toBe('number')
 
     // -- Window list --
-    if (isMacOS) {
+    if (isMacOS || isWindows) {
       const windowList = await bridge.windowList()
       expect(windowList.length).toBeGreaterThan(0)
       const firstWindow = windowList[0]!
@@ -73,8 +73,14 @@ describe('native bridge contract', () => {
       expect(typeof firstWindow.desktopIndex).toBe('number')
     }
 
-    // -- Clipboard (not supported on this platform yet) --
-    await expect(bridge.clipboardSet({ text: 'bridge-contract-test' })).rejects.toThrow(/not (supported|implemented)/)
-    await expect(bridge.clipboardGet()).rejects.toThrow(/not (supported|implemented)/)
+    // -- Clipboard --
+    if (isWindows) {
+      const payload = `bridge-contract-test-${Date.now()}`
+      await bridge.clipboardSet({ text: payload })
+      await expect(bridge.clipboardGet()).resolves.toBe(payload)
+    } else {
+      await expect(bridge.clipboardSet({ text: 'bridge-contract-test' })).rejects.toThrow(/not (supported|implemented)/)
+      await expect(bridge.clipboardGet()).rejects.toThrow(/not (supported|implemented)/)
+    }
   })
 })

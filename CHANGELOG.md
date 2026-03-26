@@ -6,9 +6,64 @@ All notable changes to `usecomputer` will be documented in this file.
 
 ## 0.1.6
 
-- **Version string from package.json** — the CLI binary now reports the correct
-  version instead of a stale hardcoded string. The build pipeline reads the
-  version from `package.json` and passes it to Zig via `-Dversion`.
+1. **Windows support** — all automation commands now work on Windows. The native
+   module ships as `win32-x64` and is built from the same Zig source as macOS
+   and Linux:
+
+   ```bash
+   npm install -g usecomputer
+
+   # screenshot the primary display
+   usecomputer screenshot ./shot.png --json
+
+   # click, type, press, scroll, drag — all work
+   usecomputer click -x 600 -y 400
+   usecomputer type "hello from windows"
+   usecomputer press "ctrl+c"
+   usecomputer scroll down 3
+   usecomputer drag 100,200 500,600
+
+   # list displays and windows
+   usecomputer display list --json
+   usecomputer window list --json
+
+   # clipboard
+   usecomputer clipboard set "hello"
+   usecomputer clipboard get
+   ```
+
+   Implemented via native Win32 APIs: `SendInput` for mouse/keyboard, GDI
+   `BitBlt`+`GetDIBits` for screenshots (same approach as Pillow/ImageGrab),
+   `EnumDisplayMonitors` for display enumeration, `EnumWindows` for window
+   listing, and the standard clipboard API. DPI awareness is initialized
+   automatically so coordinates match what you see on screen.
+
+   **Requirements:** run in an interactive desktop session (input injection
+   is blocked on the Windows lock screen, same as macOS/Linux).
+
+2. **Curved drag with bezier control point** — `drag` now accepts an optional
+   third `[cp]` argument to curve the path. Useful for drawing circles, arcs,
+   or any gesture that isn't a straight line:
+
+   ```bash
+   # Straight drag (unchanged)
+   usecomputer drag 100,200 500,600
+
+   # Curved drag — cp pulls the path toward it without passing through it
+   usecomputer drag 100,200 500,600 300,50
+
+   # Draw a circle at center (400,300) radius 50 using 4 bezier arcs
+   usecomputer drag 400,250 450,300 450,250
+   usecomputer drag 450,300 400,350 450,350
+   usecomputer drag 400,350 350,300 350,350
+   usecomputer drag 350,300 400,250 350,250
+   ```
+
+   Duration is now auto-computed from arc length at ~500 px/s so short and
+   long drags feel natural without needing `--duration`.
+
+3. **Version string from package.json** — the CLI binary now reports the correct
+   version instead of a stale hardcoded string.
 
 ## 0.1.5
 

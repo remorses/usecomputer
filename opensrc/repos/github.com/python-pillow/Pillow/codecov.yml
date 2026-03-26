@@ -1,0 +1,20 @@
+# Documentation: https://docs.codecov.com/docs/codecov-yaml
+
+codecov:
+  # Avoid "Missing base report" due to committing with "[CI skip]"
+  # https://github.com/codecov/support/issues/363
+  # https://docs.codecov.com/docs/comparing-commits
+  allow_coverage_offsets: true
+
+comment: false
+
+coverage:
+  status:
+    project:
+      default:
+        threshold: 0.1%
+
+# Matches 'omit:' in .coveragerc
+ignore:
+  - "checks/*.py"
+  - "Tests/createfontdatachunk.py"

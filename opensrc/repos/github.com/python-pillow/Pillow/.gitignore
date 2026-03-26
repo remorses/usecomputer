@@ -1,0 +1,99 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.eggs/
+.Python
+env/
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheelhouse/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.cache
+.pytest_cache
+coverage.xml
+
+# Test files
+test_images
+
+# Translations
+*.mo
+
+# Mr Developer
+.mr.developer.cfg
+.project
+.pydevproject
+
+# Rope
+.ropeproject
+
+# Django stuff:
+*.log
+*.pot
+
+# Sphinx documentation
+docs/_build/
+
+# viewdoc output
+.long-description.html
+
+# Vim cruft
+.*.swp
+
+#emacs
+*~
+\#*#
+.#*
+
+#VS Code
+.vscode
+
+#Komodo
+*.komodoproject
+
+#OS
+.DS_Store
+
+# JetBrains
+.idea
+
+# Extra test images installed from python-pillow/test-images
+Tests/images/README.md
+Tests/images/crash_1.tif
+Tests/images/crash_2.tif
+Tests/images/crash-81154a65438ba5aaeca73fd502fa4850fbde60f8.tif
+Tests/images/string_dimension.tiff
+Tests/images/jpeg2000
+Tests/images/msp
+Tests/images/picins
+Tests/images/sunraster
+
+# Test and dependency downloads
+pillow-depends-main.zip
+pillow-test-images.zip
+
+# pyinstaller
+*.spec

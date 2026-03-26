@@ -1,0 +1,62 @@
+[
+  {
+    "name": "introduction",
+    "type": "file",
+    "label": "Introduction"
+  },
+  {
+    "name": "installation",
+    "type": "file",
+    "label": "Installation"
+  },
+  {
+    "name": "quick-start",
+    "type": "file",
+    "label": "Quick Start"
+  },
+  {
+    "name": "client-api",
+    "type": "file",
+    "label": "Typed Client"
+  },
+  {
+    "name": "commands",
+    "type": "file",
+    "label": "Commands"
+  },
+  {
+    "name": "configuration",
+    "type": "file",
+    "label": "Configuration"
+  },
+  {
+    "name": "batching",
+    "type": "file",
+    "label": "Batching"
+  },
+  {
+    "name": "selectors",
+    "type": "file",
+    "label": "Selectors"
+  },
+  {
+    "name": "sessions",
+    "type": "file",
+    "label": "Sessions"
+  },
+  {
+    "name": "replay-e2e",
+    "type": "file",
+    "label": "Replay & E2E (Experimental)"
+  },
+  {
+    "name": "snapshots",
+    "type": "file",
+    "label": "Snapshots"
+  },
+  {
+    "name": "known-limitations",
+    "type": "file",
+    "label": "Known Limitations"
+  }
+]

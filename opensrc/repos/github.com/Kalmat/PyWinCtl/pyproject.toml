@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PyWinCtl"
+dynamic = ["version"]
+description = "Cross-Platform toolkit to get info on and control windows on screen"
+authors = [
+    { name = "Kalmat", email = "palookjones@gmail.com" },
+]
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+requires-python = ">=3.9"
+keywords = [
+    "activate",
+    "close",
+    "control",
+    "geometry",
+    "gui",
+    "hide",
+    "lower",
+    "maximize",
+    "menu",
+    "minimize",
+    "mouse-position",
+    "move",
+    "name",
+    "position",
+    "raise",
+    "resize",
+    "restore",
+    "screen-size",
+    "show",
+    "size",
+    "title",
+    "window",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "ewmhlib>=0.2; sys_platform == 'linux'",
+    "pymonctl>=0.92",
+    "pyobjc>=8.1; sys_platform == 'darwin'",
+    "python-xlib>=0.21; sys_platform == 'linux'",
+    "pywin32>=302; sys_platform == 'win32'",
+    "pywinbox>=0.7",
+    "typing_extensions>=4.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ewmhlib>=0.2",
+    "mypy>=0.990",
+    "myst-parser",
+    "types-python-xlib>=0.32",
+    "types-pywin32>=305.0.0.3",
+    "types-setuptools>=65.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/Kalmat/PyWinCtl"
+
+[tool.setuptools.packages.find]
+where = ["src"]  # list of folders that contain the packages (["."] by default)
+
+[tool.setuptools.dynamic]
+version = {attr = "pywinctl.__version__"}  # any module attribute compatible with ast.literal_eval

@@ -1,0 +1,696 @@
+import http, { type IncomingHttpHeaders } from 'node:http';
+import fs from 'node:fs';
+import { AppError, normalizeError } from '../utils/errors.ts';
+import type { DaemonInstallSource, DaemonRequest, DaemonResponse } from './types.ts';
+import { normalizeTenantId } from './config.ts';
+import {
+  clearRequestCanceled,
+  markRequestCanceled,
+  registerRequestAbort,
+  resolveRequestTrackingId,
+} from './request-cancel.ts';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { cleanupDownloadableArtifact, prepareDownloadableArtifact } from './artifact-registry.ts';
+import { trackUploadedArtifact } from './upload-registry.ts';
+import { receiveUpload } from './upload.ts';
+
+type JsonRpcRequest = {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: string;
+  params?: unknown;
+};
+
+type JsonRpcResponse = {
+  jsonrpc: '2.0';
+  id: string | number | null;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: Record<string, unknown>;
+  };
+};
+
+export type HttpAuthHookContext = {
+  headers: IncomingHttpHeaders;
+  rpcRequest: JsonRpcRequest;
+  daemonRequest: DaemonRequest;
+};
+
+export type HttpAuthHookResult =
+  | boolean
+  | void
+  | {
+      ok?: boolean;
+      tenantId?: string;
+      code?: string;
+      message?: string;
+      details?: Record<string, unknown>;
+    };
+
+export type HttpAuthHook = (
+  context: HttpAuthHookContext,
+) => Promise<HttpAuthHookResult> | HttpAuthHookResult;
+
+type HttpAuthDecision =
+  | { ok: true; tenantId?: string }
+  | { ok: false; statusCode: number; response: JsonRpcResponse };
+
+const MAX_HTTP_RPC_BODY_BYTES = 1024 * 1024;
+const COMMAND_RPC_METHODS = new Set(['agent_device.command', 'agent-device.command']);
+const INSTALL_FROM_SOURCE_RPC_METHODS = new Set([
+  'agent_device.install_from_source',
+  'agent-device.install_from_source',
+]);
+const RELEASE_MATERIALIZED_PATHS_RPC_METHODS = new Set([
+  'agent_device.release_materialized_paths',
+  'agent-device.release_materialized_paths',
+]);
+const LEASE_RPC_METHOD_TO_COMMAND: Record<
+  string,
+  'lease_allocate' | 'lease_heartbeat' | 'lease_release'
+> = {
+  'agent_device.lease.allocate': 'lease_allocate',
+  'agent-device.lease.allocate': 'lease_allocate',
+  'agent_device.lease.heartbeat': 'lease_heartbeat',
+  'agent-device.lease.heartbeat': 'lease_heartbeat',
+  'agent_device.lease.release': 'lease_release',
+  'agent-device.lease.release': 'lease_release',
+};
+const SUPPORTED_RPC_METHODS = new Set([
+  ...COMMAND_RPC_METHODS,
+  ...INSTALL_FROM_SOURCE_RPC_METHODS,
+  ...RELEASE_MATERIALIZED_PATHS_RPC_METHODS,
+  ...Object.keys(LEASE_RPC_METHOD_TO_COMMAND),
+]);
+
+function createRpcError(
+  id: string | number | null,
+  code: number,
+  message: string,
+  data?: Record<string, unknown>,
+): JsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: { code, message, data },
+  };
+}
+
+function sendJson(
+  res: http.ServerResponse<http.IncomingMessage>,
+  response: JsonRpcResponse,
+  httpCode: number = 200,
+): void {
+  res.statusCode = httpCode;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(response));
+}
+
+function statusCodeForNormalizedError(code: string): number {
+  switch (code) {
+    case 'INVALID_ARGS':
+      return 400;
+    case 'UNAUTHORIZED':
+      return 401;
+    case 'SESSION_NOT_FOUND':
+      return 404;
+    default:
+      return 500;
+  }
+}
+
+function resolveToken(params: Record<string, unknown>, headers: IncomingHttpHeaders): string {
+  const authHeader = typeof headers.authorization === 'string' ? headers.authorization : '';
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice('bearer '.length)
+    : undefined;
+  const headerToken =
+    typeof headers['x-agent-device-token'] === 'string'
+      ? headers['x-agent-device-token']
+      : undefined;
+  const paramToken = typeof params.token === 'string' ? params.token : undefined;
+  return paramToken ?? headerToken ?? bearerToken ?? '';
+}
+
+function toDaemonRequest(
+  params: Partial<DaemonRequest>,
+  headers: IncomingHttpHeaders,
+): DaemonRequest {
+  const raw = params as Record<string, unknown>;
+  return {
+    token: resolveToken(raw, headers),
+    session: params.session ?? 'default',
+    command: params.command ?? '',
+    positionals: Array.isArray(params.positionals) ? params.positionals : [],
+    flags: params.flags,
+    // JSON-RPC params are untyped here; runtime shape is validated in the session open handler.
+    runtime: params.runtime,
+    meta: params.meta,
+  };
+}
+
+function readStringParam(params: Record<string, unknown>, key: string): string | undefined {
+  const value = params[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readIntParam(params: Record<string, unknown>, key: string): number | undefined {
+  const value = params[key];
+  return Number.isInteger(value) ? Number(value) : undefined;
+}
+
+function readBooleanParam(params: Record<string, unknown>, key: string): boolean | undefined {
+  const value = params[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function toLeaseDaemonRequest(
+  command: 'lease_allocate' | 'lease_heartbeat' | 'lease_release',
+  params: Record<string, unknown>,
+  headers: IncomingHttpHeaders,
+): DaemonRequest {
+  return {
+    token: resolveToken(params, headers),
+    session: readStringParam(params, 'session') ?? 'default',
+    command,
+    positionals: [],
+    meta: {
+      tenantId: readStringParam(params, 'tenantId') ?? readStringParam(params, 'tenant'),
+      runId: readStringParam(params, 'runId'),
+      leaseId: readStringParam(params, 'leaseId'),
+      leaseTtlMs: readIntParam(params, 'ttlMs'),
+      leaseBackend: readStringParam(params, 'backend') as 'ios-simulator' | undefined,
+    },
+  };
+}
+
+function parseInstallSource(params: Record<string, unknown>): DaemonInstallSource {
+  const source = params.source;
+  if (!source || typeof source !== 'object') {
+    throw new AppError('INVALID_ARGS', 'Invalid params: source is required');
+  }
+  const record = source as Record<string, unknown>;
+  if (record.kind === 'url') {
+    const url = typeof record.url === 'string' ? record.url.trim() : '';
+    if (!url) {
+      throw new AppError('INVALID_ARGS', 'Invalid params: source.url is required for url sources');
+    }
+    const rawHeaders = record.headers;
+    const headers: Record<string, string> = {};
+    if (rawHeaders !== undefined) {
+      if (!rawHeaders || typeof rawHeaders !== 'object' || Array.isArray(rawHeaders)) {
+        throw new AppError('INVALID_ARGS', 'Invalid params: source.headers must be a string map');
+      }
+      for (const [key, value] of Object.entries(rawHeaders as Record<string, unknown>)) {
+        if (typeof value !== 'string') {
+          throw new AppError(
+            'INVALID_ARGS',
+            'Invalid params: source.headers values must be strings',
+          );
+        }
+        headers[key] = value;
+      }
+    }
+    return Object.keys(headers).length > 0 ? { kind: 'url', url, headers } : { kind: 'url', url };
+  }
+  if (record.kind === 'path') {
+    const artifactPath = typeof record.path === 'string' ? record.path.trim() : '';
+    if (!artifactPath) {
+      throw new AppError(
+        'INVALID_ARGS',
+        'Invalid params: source.path is required for path sources',
+      );
+    }
+    return { kind: 'path', path: artifactPath };
+  }
+  throw new AppError('INVALID_ARGS', 'Invalid params: source.kind must be "url" or "path"');
+}
+
+function toInstallFromSourceDaemonRequest(
+  params: Record<string, unknown>,
+  headers: IncomingHttpHeaders,
+): DaemonRequest {
+  const platform = readStringParam(params, 'platform');
+  if (platform !== 'ios' && platform !== 'android') {
+    throw new AppError('INVALID_ARGS', 'Invalid params: platform must be "ios" or "android"');
+  }
+  return {
+    token: resolveToken(params, headers),
+    session: readStringParam(params, 'session') ?? 'default',
+    command: 'install_source',
+    positionals: [],
+    flags: { platform },
+    meta: {
+      requestId: readStringParam(params, 'requestId'),
+      installSource: parseInstallSource(params),
+      retainMaterializedPaths: readBooleanParam(params, 'retainPaths'),
+      materializedPathRetentionMs: readIntParam(params, 'retentionMs'),
+    },
+  };
+}
+
+function toReleaseMaterializedPathsDaemonRequest(
+  params: Record<string, unknown>,
+  headers: IncomingHttpHeaders,
+): DaemonRequest {
+  const materializationId = readStringParam(params, 'materializationId')?.trim();
+  if (!materializationId) {
+    throw new AppError('INVALID_ARGS', 'Invalid params: materializationId is required');
+  }
+  return {
+    token: resolveToken(params, headers),
+    session: readStringParam(params, 'session') ?? 'default',
+    command: 'release_materialized_paths',
+    positionals: [],
+    meta: {
+      requestId: readStringParam(params, 'requestId'),
+      materializationId,
+    },
+  };
+}
+
+function methodToDaemonRequest(
+  method: string,
+  params: Record<string, unknown>,
+  headers: IncomingHttpHeaders,
+): DaemonRequest {
+  if (COMMAND_RPC_METHODS.has(method)) {
+    return toDaemonRequest(params as unknown as Partial<DaemonRequest>, headers);
+  }
+  if (INSTALL_FROM_SOURCE_RPC_METHODS.has(method)) {
+    return toInstallFromSourceDaemonRequest(params, headers);
+  }
+  if (RELEASE_MATERIALIZED_PATHS_RPC_METHODS.has(method)) {
+    return toReleaseMaterializedPathsDaemonRequest(params, headers);
+  }
+  const leaseCommand = LEASE_RPC_METHOD_TO_COMMAND[method];
+  if (leaseCommand) {
+    return toLeaseDaemonRequest(leaseCommand, params, headers);
+  }
+  throw new AppError('INVALID_ARGS', `Method not found: ${method}`);
+}
+
+function isCommandRpcMethod(method: string): boolean {
+  return COMMAND_RPC_METHODS.has(method);
+}
+
+async function runHttpAuthHook(
+  authHook: HttpAuthHook | null,
+  context: HttpAuthHookContext,
+): Promise<HttpAuthDecision> {
+  if (!authHook) return { ok: true };
+  const result = await authHook(context);
+  if (result === undefined || result === true) return { ok: true };
+  if (result === false) {
+    const normalized = normalizeError(
+      new AppError('UNAUTHORIZED', 'Request rejected by auth hook'),
+    );
+    return {
+      ok: false,
+      statusCode: 401,
+      response: createRpcError(
+        context.rpcRequest.id ?? null,
+        -32001,
+        normalized.message,
+        normalized,
+      ),
+    };
+  }
+  if (result.ok === false) {
+    const normalized = normalizeError(
+      new AppError(
+        (result.code as any) ?? 'UNAUTHORIZED',
+        result.message ?? 'Request rejected by auth hook',
+        result.details,
+      ),
+    );
+    return {
+      ok: false,
+      statusCode: 401,
+      response: createRpcError(
+        context.rpcRequest.id ?? null,
+        -32001,
+        normalized.message,
+        normalized,
+      ),
+    };
+  }
+  if (typeof result.tenantId === 'string' && result.tenantId.length > 0) {
+    const tenantId = normalizeTenantId(result.tenantId);
+    if (!tenantId) {
+      const normalized = normalizeError(
+        new AppError('INVALID_ARGS', 'Auth hook returned invalid tenantId'),
+      );
+      return {
+        ok: false,
+        statusCode: 500,
+        response: createRpcError(
+          context.rpcRequest.id ?? null,
+          -32000,
+          normalized.message,
+          normalized,
+        ),
+      };
+    }
+    return { ok: true, tenantId };
+  }
+  return { ok: true };
+}
+
+async function loadHttpAuthHook(): Promise<HttpAuthHook | null> {
+  const hookPath = process.env.AGENT_DEVICE_HTTP_AUTH_HOOK;
+  if (!hookPath) return null;
+  const exportName = process.env.AGENT_DEVICE_HTTP_AUTH_EXPORT || 'default';
+  const resolvedPath = path.isAbsolute(hookPath) ? hookPath : path.resolve(hookPath);
+  let imported: Record<string, unknown>;
+  try {
+    imported = (await import(pathToFileURL(resolvedPath).href)) as Record<string, unknown>;
+  } catch (error) {
+    throw new AppError('COMMAND_FAILED', 'Failed to load AGENT_DEVICE_HTTP_AUTH_HOOK module', {
+      hookPath: resolvedPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const maybeHook = imported[exportName];
+  if (typeof maybeHook !== 'function') {
+    throw new AppError('INVALID_ARGS', `Auth hook export ${exportName} is not a function`, {
+      hookPath: resolvedPath,
+      exportName,
+    });
+  }
+  return maybeHook as HttpAuthHook;
+}
+
+export async function createDaemonHttpServer(options: {
+  handleRequest: (req: DaemonRequest) => Promise<DaemonResponse>;
+  token?: string;
+}): Promise<http.Server> {
+  const authHook = await loadHttpAuthHook();
+  const { handleRequest, token } = options;
+  return http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/upload') {
+      handleUpload(req, res, authHook, token);
+      return;
+    }
+
+    if (req.method === 'GET' && req.url?.startsWith('/upload/')) {
+      void handleArtifactDownload(req, res, authHook, token);
+      return;
+    }
+
+    if (req.method !== 'POST' || req.url !== '/rpc') {
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > MAX_HTTP_RPC_BODY_BYTES) {
+        req.destroy(new Error('request too large'));
+      }
+    });
+
+    req.on('error', () => {
+      if (!res.headersSent) {
+        sendJson(res, createRpcError(null, -32700, 'Parse error'), 400);
+      }
+    });
+
+    req.on('end', async () => {
+      let rpcRequest: JsonRpcRequest;
+      try {
+        rpcRequest = JSON.parse(body) as JsonRpcRequest;
+      } catch {
+        sendJson(res, createRpcError(null, -32700, 'Parse error'), 400);
+        return;
+      }
+
+      if (rpcRequest.jsonrpc !== '2.0' || typeof rpcRequest.method !== 'string') {
+        sendJson(res, createRpcError(rpcRequest.id ?? null, -32600, 'Invalid Request'), 400);
+        return;
+      }
+      if (!SUPPORTED_RPC_METHODS.has(rpcRequest.method)) {
+        sendJson(
+          res,
+          createRpcError(rpcRequest.id ?? null, -32601, `Method not found: ${rpcRequest.method}`),
+          404,
+        );
+        return;
+      }
+      if (!rpcRequest.params || typeof rpcRequest.params !== 'object') {
+        sendJson(res, createRpcError(rpcRequest.id ?? null, -32602, 'Invalid params'), 400);
+        return;
+      }
+
+      let requestIdForCleanup: string | undefined;
+      try {
+        const params = rpcRequest.params as Record<string, unknown>;
+        const daemonRequest = methodToDaemonRequest(rpcRequest.method, params, req.headers);
+        if (
+          isCommandRpcMethod(rpcRequest.method) &&
+          (typeof daemonRequest.command !== 'string' || daemonRequest.command.length === 0)
+        ) {
+          sendJson(
+            res,
+            createRpcError(rpcRequest.id ?? null, -32602, 'Invalid params: command is required'),
+            400,
+          );
+          return;
+        }
+
+        requestIdForCleanup = resolveRequestTrackingId(
+          daemonRequest.meta?.requestId,
+          rpcRequest.id,
+        );
+        daemonRequest.meta = {
+          ...daemonRequest.meta,
+          requestId: requestIdForCleanup,
+        };
+        registerRequestAbort(requestIdForCleanup);
+        const markCanceledIfResponseIncomplete = () => {
+          if (!res.writableFinished) {
+            markRequestCanceled(requestIdForCleanup);
+          }
+        };
+        req.on('aborted', markCanceledIfResponseIncomplete);
+        res.on('close', markCanceledIfResponseIncomplete);
+
+        const authResult = await runHttpAuthHook(authHook, {
+          headers: req.headers,
+          rpcRequest,
+          daemonRequest,
+        });
+        if (!authResult.ok) {
+          sendJson(res, authResult.response, authResult.statusCode);
+          return;
+        }
+        if (authResult.tenantId) {
+          daemonRequest.meta = {
+            ...daemonRequest.meta,
+            tenantId: authResult.tenantId,
+            sessionIsolation:
+              daemonRequest.meta?.sessionIsolation ??
+              daemonRequest.flags?.sessionIsolation ??
+              'tenant',
+          };
+        }
+
+        const daemonResponse = await handleRequest(daemonRequest);
+        if (daemonResponse.ok) {
+          sendJson(res, { jsonrpc: '2.0', id: rpcRequest.id ?? null, result: daemonResponse });
+          return;
+        }
+        sendJson(
+          res,
+          createRpcError(
+            rpcRequest.id ?? null,
+            -32000,
+            daemonResponse.error.message,
+            daemonResponse.error,
+          ),
+          statusCodeForNormalizedError(daemonResponse.error.code),
+        );
+      } catch (error) {
+        const normalized = normalizeError(error);
+        sendJson(
+          res,
+          createRpcError(rpcRequest.id ?? null, -32000, normalized.message, normalized),
+          statusCodeForNormalizedError(normalized.code),
+        );
+      } finally {
+        clearRequestCanceled(requestIdForCleanup);
+      }
+    });
+  });
+}
+
+async function handleUpload(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  authHook: HttpAuthHook | null,
+  expectedToken?: string,
+): Promise<void> {
+  try {
+    // Auth: resolve token from headers and run auth hook with a synthetic context.
+    const token = resolveToken({}, req.headers);
+    const tokenError = enforceDaemonToken(token, expectedToken);
+    if (tokenError) {
+      res.statusCode = statusCodeForNormalizedError(tokenError.code);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error: tokenError.message, code: tokenError.code }));
+      return;
+    }
+    const syntheticRpc: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: null,
+      method: 'agent_device.command',
+    };
+    const syntheticDaemon: DaemonRequest = {
+      token,
+      session: 'default',
+      command: 'upload',
+      positionals: [],
+    };
+    const authResult = await runHttpAuthHook(authHook, {
+      headers: req.headers,
+      rpcRequest: syntheticRpc,
+      daemonRequest: syntheticDaemon,
+    });
+    if (!authResult.ok) {
+      res.statusCode = authResult.statusCode;
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error:
+            authResult.response.error?.data?.message ??
+            authResult.response.error?.message ??
+            'Unauthorized',
+        }),
+      );
+      return;
+    }
+
+    const result = await receiveUpload(req);
+    const uploadId = trackUploadedArtifact({
+      artifactPath: result.artifactPath,
+      tempDir: result.tempDir,
+      tenantId: authResult.tenantId,
+    });
+
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true, uploadId }));
+  } catch (error) {
+    const normalized = normalizeError(error);
+    res.statusCode = statusCodeForNormalizedError(normalized.code);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: normalized.message, code: normalized.code }));
+  }
+}
+
+async function handleArtifactDownload(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  authHook: HttpAuthHook | null,
+  expectedToken?: string,
+): Promise<void> {
+  const artifactId = req.url?.slice('/upload/'.length) ?? '';
+  if (!artifactId) {
+    res.statusCode = 400;
+    res.end('Missing artifact id');
+    return;
+  }
+  try {
+    const token = resolveToken({}, req.headers);
+    const tokenError = enforceDaemonToken(token, expectedToken);
+    if (tokenError) {
+      res.statusCode = statusCodeForNormalizedError(tokenError.code);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error: tokenError.message, code: tokenError.code }));
+      return;
+    }
+    const syntheticRpc: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: null,
+      method: 'agent_device.command',
+    };
+    const syntheticDaemon: DaemonRequest = {
+      token,
+      session: 'default',
+      command: 'download_artifact',
+      positionals: [artifactId],
+    };
+    const authResult = await runHttpAuthHook(authHook, {
+      headers: req.headers,
+      rpcRequest: syntheticRpc,
+      daemonRequest: syntheticDaemon,
+    });
+    if (!authResult.ok) {
+      res.statusCode = authResult.statusCode;
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error:
+            authResult.response.error?.data?.message ??
+            authResult.response.error?.message ??
+            'Unauthorized',
+        }),
+      );
+      return;
+    }
+    const artifact = prepareDownloadableArtifact(artifactId, authResult.tenantId);
+    const stream = fs.createReadStream(artifact.artifactPath);
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/octet-stream');
+    if (artifact.fileName) {
+      res.setHeader(
+        'content-disposition',
+        `attachment; filename="${artifact.fileName.replace(/"/g, '')}"`,
+      );
+    }
+    stream.on('error', (error) => {
+      if (!res.headersSent) {
+        const normalized = normalizeError(error);
+        res.statusCode = statusCodeForNormalizedError(normalized.code);
+        res.end(normalized.message);
+      } else {
+        res.destroy(error as Error);
+      }
+    });
+    res.on('close', () => {
+      if (res.writableFinished) {
+        cleanupDownloadableArtifact(artifactId);
+      }
+    });
+    stream.pipe(res);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    res.statusCode = statusCodeForNormalizedError(normalized.code);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: normalized.message, code: normalized.code }));
+  }
+}
+
+function enforceDaemonToken(
+  requestToken: string,
+  expectedToken: string | undefined,
+): ReturnType<typeof normalizeError> | null {
+  if (!expectedToken) return null;
+  if (requestToken === expectedToken) return null;
+  return normalizeError(new AppError('UNAUTHORIZED', 'Invalid token'));
+}

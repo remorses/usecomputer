@@ -223,6 +223,7 @@ const MouseButtonInput = struct {
 const DragInput = struct {
     from: Point,
     to: Point,
+    cp: ?Point = null,
     durationMs: ?f64 = null,
     button: ?[]const u8 = null,
 };
@@ -300,6 +301,38 @@ const RawRgbaImage = struct {
     height: usize,
 };
 
+const WindowsRect = struct {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+};
+
+const WindowsDisplay = struct {
+    id: u32,
+    bounds: WindowsRect,
+    is_primary: bool,
+};
+
+const WindowsSelectedDisplay = struct {
+    display: WindowsDisplay,
+    index: usize,
+};
+
+var windows_dpi_awareness_initialized = false;
+
+fn ensureWindowsDpiAware() void {
+    if (builtin.target.os.tag != .windows) {
+        return;
+    }
+    if (windows_dpi_awareness_initialized) {
+        return;
+    }
+
+    windows_dpi_awareness_initialized = true;
+    _ = c_windows.SetProcessDPIAware();
+}
+
 const TypeTextInput = struct {
     text: []const u8,
     delayMs: ?f64 = null,
@@ -324,6 +357,35 @@ const ClipboardSetInput = struct {
 pub fn screenshot(input: ScreenshotInput) DataResult(ScreenshotOutput) {
     _ = input.annotate;
     const output_path = input.path orelse "./screenshot.png";
+
+    if (builtin.target.os.tag == .windows) {
+        const capture = createWindowsScreenshotImage(.{
+            .display_index = input.display,
+            .window_id = input.window,
+            .region = input.region,
+        }) catch {
+            return failData(ScreenshotOutput, "screenshot", "CAPTURE_FAILED", "failed to capture screenshot image");
+        };
+        defer std.heap.c_allocator.free(capture.image.pixels);
+
+        writeRgbaScreenshotPng(.{
+            .image = capture.image,
+            .output_path = output_path,
+        }) catch {
+            return failData(ScreenshotOutput, "screenshot", "WRITE_FAILED", "failed to write screenshot file");
+        };
+
+        return okData(ScreenshotOutput, .{
+            .path = output_path,
+            .desktopIndex = @floatFromInt(capture.desktop_index),
+            .captureX = capture.capture_x,
+            .captureY = capture.capture_y,
+            .captureWidth = capture.capture_width,
+            .captureHeight = capture.capture_height,
+            .imageWidth = @floatFromInt(capture.image.width),
+            .imageHeight = @floatFromInt(capture.image.height),
+        });
+    }
 
     if (builtin.target.os.tag == .linux) {
         if (input.window != null) {
@@ -363,7 +425,7 @@ pub fn screenshot(input: ScreenshotInput) DataResult(ScreenshotOutput) {
     }
 
     if (builtin.target.os.tag != .macos) {
-        return failData(ScreenshotOutput, "screenshot", "UNSUPPORTED_PLATFORM", "screenshot is only supported on macOS and Linux X11");
+        return failData(ScreenshotOutput, "screenshot", "UNSUPPORTED_PLATFORM", "screenshot is unsupported on this platform");
     }
 
     const capture = createScreenshotImage(.{
@@ -420,6 +482,436 @@ fn linuxScreenshotErrorMessage(err: anyerror) []const u8 {
         error.ImageCreateFailed, error.ShmAllocFailed, error.ShmAttachFailed, error.ShmGetFailed, error.CaptureFailed => "failed to capture screenshot image",
         else => "failed to capture screenshot image",
     };
+}
+
+const WindowsDisplayEnumContext = struct {
+    displays: *std.ArrayList(WindowsDisplay),
+    allocator: std.mem.Allocator,
+    failed: bool = false,
+};
+
+fn enumWindowsDisplayCallback(
+    monitor: c_windows.HMONITOR,
+    _: c_windows.HDC,
+    _: [*c]c_windows.RECT,
+    l_param: c_windows.LPARAM,
+) callconv(.winapi) c_int {
+    const context: *WindowsDisplayEnumContext = @ptrFromInt(@as(usize, @intCast(l_param)));
+
+    var info: c_windows.MONITORINFO = std.mem.zeroes(c_windows.MONITORINFO);
+    info.cbSize = @sizeOf(c_windows.MONITORINFO);
+    if (c_windows.GetMonitorInfoA(monitor, @ptrCast(&info)) == 0) {
+        context.failed = true;
+        return c_windows.FALSE;
+    }
+
+    const item = WindowsDisplay{
+        .id = @as(u32, @truncate(@as(usize, @intFromPtr(monitor)))),
+        .bounds = .{
+            .x = info.rcMonitor.left,
+            .y = info.rcMonitor.top,
+            .width = info.rcMonitor.right - info.rcMonitor.left,
+            .height = info.rcMonitor.bottom - info.rcMonitor.top,
+        },
+        .is_primary = (info.dwFlags & c_windows.MONITORINFOF_PRIMARY) != 0,
+    };
+    context.displays.append(context.allocator, item) catch {
+        context.failed = true;
+        return c_windows.FALSE;
+    };
+    return c_windows.TRUE;
+}
+
+fn enumerateWindowsDisplays(allocator: std.mem.Allocator) ![]WindowsDisplay {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+    ensureWindowsDpiAware();
+
+    var displays = try std.ArrayList(WindowsDisplay).initCapacity(allocator, 0);
+    errdefer displays.deinit(allocator);
+    var context = WindowsDisplayEnumContext{ .displays = &displays, .allocator = allocator };
+
+    const ok = c_windows.EnumDisplayMonitors(
+        null,
+        null,
+        enumWindowsDisplayCallback,
+        @as(c_windows.LPARAM, @intCast(@intFromPtr(&context))),
+    );
+    if (ok == 0 or context.failed or displays.items.len == 0) {
+        displays.deinit(allocator);
+        return error.DisplayQueryFailed;
+    }
+
+    return displays.toOwnedSlice(allocator);
+}
+
+fn resolveWindowsDisplay(display_index: ?f64) !WindowsSelectedDisplay {
+    const displays = try enumerateWindowsDisplays(std.heap.c_allocator);
+    defer std.heap.c_allocator.free(displays);
+
+    if (display_index) |value| {
+        const normalized = @as(i64, @intFromFloat(std.math.round(value)));
+        if (normalized < 0) {
+            return error.InvalidDisplayIndex;
+        }
+        const selected_index = @as(usize, @intCast(normalized));
+        if (selected_index >= displays.len) {
+            return error.InvalidDisplayIndex;
+        }
+        return .{ .display = displays[selected_index], .index = selected_index };
+    }
+
+    var i: usize = 0;
+    while (i < displays.len) : (i += 1) {
+        if (displays[i].is_primary) {
+            return .{ .display = displays[i], .index = i };
+        }
+    }
+    return .{ .display = displays[0], .index = 0 };
+}
+
+fn resolveWindowsDesktopIndexForRect(rect: WindowsRect) !usize {
+    const displays = try enumerateWindowsDisplays(std.heap.c_allocator);
+    defer std.heap.c_allocator.free(displays);
+
+    var best_index: usize = 0;
+    var best_overlap: i64 = -1;
+
+    var i: usize = 0;
+    while (i < displays.len) : (i += 1) {
+        const display = displays[i];
+        const left = @max(rect.x, display.bounds.x);
+        const top = @max(rect.y, display.bounds.y);
+        const right = @min(rect.x + rect.width, display.bounds.x + display.bounds.width);
+        const bottom = @min(rect.y + rect.height, display.bounds.y + display.bounds.height);
+        const overlap: i64 = if (right <= left or bottom <= top) 0 else (@as(i64, right - left) * @as(i64, bottom - top));
+        if (overlap > best_overlap) {
+            best_overlap = overlap;
+            best_index = i;
+        }
+    }
+
+    return best_index;
+}
+
+fn normalizeWindowHandle(raw_id: f64) !c_windows.HWND {
+    const normalized = @as(i64, @intFromFloat(std.math.round(raw_id)));
+    if (normalized <= 0) {
+        return error.InvalidWindowId;
+    }
+    const handle_int = @as(usize, @intCast(normalized));
+    return @ptrFromInt(handle_int);
+}
+
+fn normalizedDimensionI32(value: f64) !i32 {
+    if (!std.math.isFinite(value)) {
+        return error.InvalidRegion;
+    }
+    const rounded = @as(i64, @intFromFloat(std.math.round(value)));
+    if (rounded <= 0 or rounded > std.math.maxInt(i32)) {
+        return error.InvalidRegion;
+    }
+    return @as(i32, @intCast(rounded));
+}
+
+fn createWindowsScreenshotImage(input: struct {
+    display_index: ?f64,
+    window_id: ?f64,
+    region: ?ScreenshotRegion,
+}) !ScreenshotCapture {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    if (input.window_id) |window_id| {
+        const hwnd = try normalizeWindowHandle(window_id);
+        var rect: c_windows.RECT = std.mem.zeroes(c_windows.RECT);
+        if (c_windows.GetWindowRect(hwnd, &rect) == 0) {
+            return error.WindowNotFound;
+        }
+        const capture_rect = WindowsRect{
+            .x = rect.left,
+            .y = rect.top,
+            .width = rect.right - rect.left,
+            .height = rect.bottom - rect.top,
+        };
+        if (capture_rect.width <= 0 or capture_rect.height <= 0) {
+            return error.CaptureFailed;
+        }
+
+        const image = try captureWindowsRect(capture_rect);
+        const desktop_index = resolveWindowsDesktopIndexForRect(capture_rect) catch 0;
+        return .{
+            .image = image,
+            .capture_x = @floatFromInt(capture_rect.x),
+            .capture_y = @floatFromInt(capture_rect.y),
+            .capture_width = @floatFromInt(capture_rect.width),
+            .capture_height = @floatFromInt(capture_rect.height),
+            .desktop_index = desktop_index,
+        };
+    }
+
+    const selected_display = try resolveWindowsDisplay(input.display_index);
+    const bounds = selected_display.display.bounds;
+
+    var capture_rect = bounds;
+    if (input.region) |region| {
+        const region_x = try normalizedCoordinate(region.x);
+        const region_y = try normalizedCoordinate(region.y);
+        const region_width = try normalizedDimensionI32(region.width);
+        const region_height = try normalizedDimensionI32(region.height);
+        if (region_x < 0 or region_y < 0) {
+            return error.InvalidRegion;
+        }
+        if (region_x + region_width > bounds.width or region_y + region_height > bounds.height) {
+            return error.RegionOutOfBounds;
+        }
+        capture_rect = .{
+            .x = bounds.x + region_x,
+            .y = bounds.y + region_y,
+            .width = region_width,
+            .height = region_height,
+        };
+    }
+
+    const image = try captureWindowsRect(capture_rect);
+    return .{
+        .image = image,
+        .capture_x = @floatFromInt(capture_rect.x),
+        .capture_y = @floatFromInt(capture_rect.y),
+        .capture_width = @floatFromInt(capture_rect.width),
+        .capture_height = @floatFromInt(capture_rect.height),
+        .desktop_index = selected_display.index,
+    };
+}
+
+fn captureWindowsRect(rect: WindowsRect) !RawRgbaImage {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+    ensureWindowsDpiAware();
+
+    if (rect.width <= 0 or rect.height <= 0) {
+        return error.CaptureFailed;
+    }
+
+    const screen_dc = c_windows.GetDC(null);
+    if (screen_dc == null) {
+        return error.CaptureFailed;
+    }
+    defer _ = c_windows.ReleaseDC(null, screen_dc);
+
+    const mem_dc = c_windows.CreateCompatibleDC(screen_dc);
+    if (mem_dc == null) {
+        return error.CaptureFailed;
+    }
+    defer _ = c_windows.DeleteDC(mem_dc);
+
+    const bitmap = c_windows.CreateCompatibleBitmap(screen_dc, rect.width, rect.height);
+    if (bitmap == null) {
+        return error.CaptureFailed;
+    }
+    defer _ = c_windows.DeleteObject(bitmap);
+
+    const prev = c_windows.SelectObject(mem_dc, bitmap);
+    if (prev == null) {
+        return error.CaptureFailed;
+    }
+    defer _ = c_windows.SelectObject(mem_dc, prev);
+
+    const raster_op = c_windows.SRCCOPY | c_windows.CAPTUREBLT;
+    if (c_windows.BitBlt(mem_dc, 0, 0, rect.width, rect.height, screen_dc, rect.x, rect.y, raster_op) == 0) {
+        return error.CaptureFailed;
+    }
+
+    const width_usize = @as(usize, @intCast(rect.width));
+    const height_usize = @as(usize, @intCast(rect.height));
+    const pixel_count = width_usize * height_usize;
+    const pixels = try std.heap.c_allocator.alloc(u8, pixel_count * 4);
+    errdefer std.heap.c_allocator.free(pixels);
+
+    var bmi: c_windows.BITMAPINFO = std.mem.zeroes(c_windows.BITMAPINFO);
+    bmi.bmiHeader.biSize = @sizeOf(c_windows.BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = rect.width;
+    bmi.bmiHeader.biHeight = -rect.height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = c_windows.BI_RGB;
+
+    const scanlines = c_windows.GetDIBits(
+        mem_dc,
+        bitmap,
+        0,
+        @as(c_uint, @intCast(rect.height)),
+        pixels.ptr,
+        &bmi,
+        c_windows.DIB_RGB_COLORS,
+    );
+    if (scanlines == 0) {
+        return error.CaptureFailed;
+    }
+
+    var i: usize = 0;
+    while (i < pixels.len) : (i += 4) {
+        const blue = pixels[i];
+        const red = pixels[i + 2];
+        pixels[i] = red;
+        pixels[i + 2] = blue;
+        pixels[i + 3] = 255;
+    }
+
+    return .{ .pixels = pixels, .width = width_usize, .height = height_usize };
+}
+
+fn writeU32BigEndian(writer: anytype, value: u32) !void {
+    const bytes = [4]u8{
+        @as(u8, @intCast((value >> 24) & 0xFF)),
+        @as(u8, @intCast((value >> 16) & 0xFF)),
+        @as(u8, @intCast((value >> 8) & 0xFF)),
+        @as(u8, @intCast(value & 0xFF)),
+    };
+    try writer.writeAll(&bytes);
+}
+
+fn crc32Update(crc_seed: u32, data: []const u8) u32 {
+    var crc = crc_seed;
+    for (data) |byte| {
+        crc ^= byte;
+        var bit: u8 = 0;
+        while (bit < 8) : (bit += 1) {
+            if ((crc & 1) == 1) {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return crc;
+}
+
+fn adler32(data: []const u8) u32 {
+    const mod_adler: u32 = 65521;
+    var s1: u32 = 1;
+    var s2: u32 = 0;
+    for (data) |byte| {
+        s1 = (s1 + byte) % mod_adler;
+        s2 = (s2 + s1) % mod_adler;
+    }
+    return (s2 << 16) | s1;
+}
+
+fn encodeZlibStore(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+    const max_block: usize = 65535;
+    const block_count = if (data.len == 0) 1 else (data.len + max_block - 1) / max_block;
+    const total_size = 2 + (block_count * 5) + data.len + 4;
+    const out = try allocator.alloc(u8, total_size);
+    errdefer allocator.free(out);
+
+    var pos: usize = 0;
+    out[pos] = 0x78;
+    out[pos + 1] = 0x01;
+    pos += 2;
+
+    if (data.len == 0) {
+        out[pos] = 0x01;
+        out[pos + 1] = 0x00;
+        out[pos + 2] = 0x00;
+        out[pos + 3] = 0xFF;
+        out[pos + 4] = 0xFF;
+        pos += 5;
+    } else {
+        var remaining = data;
+        while (remaining.len > 0) {
+            const block_len = @min(remaining.len, max_block);
+            const final_block = block_len == remaining.len;
+            out[pos] = if (final_block) 0x01 else 0x00;
+            pos += 1;
+
+            const len16 = @as(u16, @intCast(block_len));
+            const nlen16: u16 = ~len16;
+            out[pos] = @as(u8, @intCast(len16 & 0xFF));
+            out[pos + 1] = @as(u8, @intCast((len16 >> 8) & 0xFF));
+            out[pos + 2] = @as(u8, @intCast(nlen16 & 0xFF));
+            out[pos + 3] = @as(u8, @intCast((nlen16 >> 8) & 0xFF));
+            pos += 4;
+
+            @memcpy(out[pos .. pos + block_len], remaining[0..block_len]);
+            pos += block_len;
+            remaining = remaining[block_len..];
+        }
+    }
+
+    const checksum = adler32(data);
+    out[pos] = @as(u8, @intCast((checksum >> 24) & 0xFF));
+    out[pos + 1] = @as(u8, @intCast((checksum >> 16) & 0xFF));
+    out[pos + 2] = @as(u8, @intCast((checksum >> 8) & 0xFF));
+    out[pos + 3] = @as(u8, @intCast(checksum & 0xFF));
+    pos += 4;
+
+    return out[0..pos];
+}
+
+fn writePngChunk(writer: anytype, chunk_type: [4]u8, data: []const u8) !void {
+    try writeU32BigEndian(writer, @as(u32, @intCast(data.len)));
+    try writer.writeAll(&chunk_type);
+    try writer.writeAll(data);
+
+    var crc = crc32Update(0xFFFFFFFF, &chunk_type);
+    crc = crc32Update(crc, data);
+    crc = ~crc;
+    try writeU32BigEndian(writer, crc);
+}
+
+fn writeRgbaScreenshotPng(input: struct {
+    image: RawRgbaImage,
+    output_path: []const u8,
+}) !void {
+    const row_bytes = input.image.width * 4;
+    const filtered_len = input.image.height * (row_bytes + 1);
+    const filtered = try std.heap.c_allocator.alloc(u8, filtered_len);
+    defer std.heap.c_allocator.free(filtered);
+
+    var src_offset: usize = 0;
+    var dst_offset: usize = 0;
+    var row: usize = 0;
+    while (row < input.image.height) : (row += 1) {
+        filtered[dst_offset] = 0;
+        dst_offset += 1;
+        @memcpy(filtered[dst_offset .. dst_offset + row_bytes], input.image.pixels[src_offset .. src_offset + row_bytes]);
+        src_offset += row_bytes;
+        dst_offset += row_bytes;
+    }
+
+    const idat = try encodeZlibStore(std.heap.c_allocator, filtered);
+    defer std.heap.c_allocator.free(idat);
+
+    const file = if (std.fs.path.isAbsolute(input.output_path))
+        try std.fs.createFileAbsolute(input.output_path, .{})
+    else
+        try std.fs.cwd().createFile(input.output_path, .{});
+    defer file.close();
+
+    const writer = file.deprecatedWriter();
+    try writer.writeAll(&[_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 });
+
+    var ihdr: [13]u8 = undefined;
+    ihdr[0] = @as(u8, @intCast((input.image.width >> 24) & 0xFF));
+    ihdr[1] = @as(u8, @intCast((input.image.width >> 16) & 0xFF));
+    ihdr[2] = @as(u8, @intCast((input.image.width >> 8) & 0xFF));
+    ihdr[3] = @as(u8, @intCast(input.image.width & 0xFF));
+    ihdr[4] = @as(u8, @intCast((input.image.height >> 24) & 0xFF));
+    ihdr[5] = @as(u8, @intCast((input.image.height >> 16) & 0xFF));
+    ihdr[6] = @as(u8, @intCast((input.image.height >> 8) & 0xFF));
+    ihdr[7] = @as(u8, @intCast(input.image.height & 0xFF));
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
+    try writePngChunk(writer, .{ 'I', 'H', 'D', 'R' }, &ihdr);
+    try writePngChunk(writer, .{ 'I', 'D', 'A', 'T' }, idat);
+    try writePngChunk(writer, .{ 'I', 'E', 'N', 'D' }, &[_]u8{});
 }
 
 fn createLinuxScreenshotImage(input: struct {
@@ -814,6 +1306,27 @@ pub fn click(input: ClickInput) CommandResult {
 
             return okCommand();
         },
+        .windows => {
+            moveCursorToPointWindows(input.point) catch {
+                return failCommand("click", "EVENT_POST_FAILED", "failed to move mouse cursor");
+            };
+
+            var index: u32 = 0;
+            while (index < click_count) : (index += 1) {
+                postMouseButtonEventWindows(button_kind, true) catch {
+                    return failCommand("click", "EVENT_POST_FAILED", "failed to post click event");
+                };
+                postMouseButtonEventWindows(button_kind, false) catch {
+                    return failCommand("click", "EVENT_POST_FAILED", "failed to post click event");
+                };
+
+                if (index + 1 < click_count) {
+                    std.Thread.sleep(80 * std.time.ns_per_ms);
+                }
+            }
+
+            return okCommand();
+        },
         .linux => {
             const display = openX11Display() catch {
                 return failCommand("click", "EVENT_POST_FAILED", "failed to open X11 display");
@@ -852,6 +1365,13 @@ pub fn mouseMove(input: MouseMoveInput) CommandResult {
                 .y = input.y,
             };
             moveCursorToPoint(point) catch {
+                return failCommand("mouse-move", "EVENT_POST_FAILED", "failed to move mouse cursor");
+            };
+
+            return okCommand();
+        },
+        .windows => {
+            moveCursorToPointWindows(.{ .x = input.x, .y = input.y }) catch {
                 return failCommand("mouse-move", "EVENT_POST_FAILED", "failed to move mouse cursor");
             };
 
@@ -903,6 +1423,13 @@ fn handleMouseButtonInput(args: struct {
 
             return okCommand();
         },
+        .windows => {
+            postMouseButtonEventWindows(button_kind, args.is_down) catch {
+                return failCommand("mouse-button", "EVENT_POST_FAILED", "failed to post mouse button event");
+            };
+
+            return okCommand();
+        },
         .linux => {
             const display = openX11Display() catch {
                 return failCommand("mouse-button", "EVENT_POST_FAILED", "failed to open X11 display");
@@ -931,6 +1458,15 @@ pub fn mousePosition() DataResult(Point) {
 
             return okData(Point, .{ .x = std.math.round(point.x), .y = std.math.round(point.y) });
         },
+        .windows => {
+            ensureWindowsDpiAware();
+            var point: c_windows.POINT = std.mem.zeroes(c_windows.POINT);
+            if (c_windows.GetCursorPos(&point) == 0) {
+                return failData(Point, "mouse-position", "CURSOR_READ_FAILED", "failed to read cursor position");
+            }
+
+            return okData(Point, .{ .x = @floatFromInt(point.x), .y = @floatFromInt(point.y) });
+        },
         .linux => {
             const display = openX11Display() catch {
                 return failData(Point, "mouse-position", "EVENT_POST_FAILED", "failed to open X11 display");
@@ -953,25 +1489,71 @@ pub fn hover(input: Point) CommandResult {
     return mouseMove(input);
 }
 
+// ─── Bezier helpers ───
+
+/// Average human drawing speed: 500 px/s = 0.5 px/ms.
+const drag_velocity_px_per_ms: f64 = 0.5;
+/// Minimum drag duration to ensure the OS registers all events.
+const drag_min_duration_ms: i64 = 200;
+
+/// Quadratic bezier: P(t) = (1-t)²·A + 2(1-t)t·CP + t²·B
+fn bezierQuadratic(a: Point, cp: Point, b: Point, t: f64) Point {
+    const u = 1.0 - t;
+    return .{
+        .x = u * u * a.x + 2.0 * u * t * cp.x + t * t * b.x,
+        .y = u * u * a.y + 2.0 * u * t * cp.y + t * t * b.y,
+    };
+}
+
+/// Estimate arc length of a drag path.
+/// For quadratic bezier: control polygon length (A→CP + CP→B).
+/// For straight line: distance A→B.
+fn estimateDragArcLength(from: Point, to: Point, cp: ?Point) f64 {
+    if (cp) |control| {
+        const d1 = @sqrt((control.x - from.x) * (control.x - from.x) + (control.y - from.y) * (control.y - from.y));
+        const d2 = @sqrt((to.x - control.x) * (to.x - control.x) + (to.y - control.y) * (to.y - control.y));
+        return d1 + d2;
+    }
+    return @sqrt((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y));
+}
+
+/// Compute drag duration from arc length and hardcoded velocity.
+/// Returns duration in milliseconds, clamped to minimum.
+fn computeDragDurationMs(from: Point, to: Point, cp: ?Point) i64 {
+    const arc_length = estimateDragArcLength(from, to, cp);
+    const computed = @as(i64, @intFromFloat(@round(arc_length / drag_velocity_px_per_ms)));
+    return @max(computed, drag_min_duration_ms);
+}
+
+/// Evaluate a drag point at parameter t (0→1).
+/// Uses quadratic bezier when cp is present, linear interpolation otherwise.
+fn evalDragPoint(from: Point, to: Point, cp: ?Point, t: f64) Point {
+    if (cp) |control| {
+        return bezierQuadratic(from, control, to, t);
+    }
+    return .{
+        .x = from.x + (to.x - from.x) * t,
+        .y = from.y + (to.y - from.y) * t,
+    };
+}
+
 pub fn drag(input: DragInput) CommandResult {
     const button_kind = resolveMouseButton(input.button orelse "left") catch {
         return failCommand("drag", "INVALID_INPUT", "invalid drag button");
     };
+    // Auto-compute duration from arc length and velocity, or use explicit override.
     const duration_ms = if (input.durationMs) |value| blk: {
         const normalized = @as(i64, @intFromFloat(std.math.round(value)));
-        if (normalized <= 0) {
-            break :blk 400;
-        }
+        if (normalized <= 0) break :blk drag_min_duration_ms;
         break :blk normalized;
-    } else 400;
+    } else computeDragDurationMs(input.from, input.to, input.cp);
     const total_duration_ns = @as(u64, @intCast(duration_ms)) * std.time.ns_per_ms;
-    const step_count: u64 = 16;
+    const step_count: u64 = 32;
     const step_duration_ns = if (step_count == 0) 0 else total_duration_ns / step_count;
 
     switch (builtin.target.os.tag) {
         .macos => {
             const from: c.CGPoint = .{ .x = input.from.x, .y = input.from.y };
-            const to: c.CGPoint = .{ .x = input.to.x, .y = input.to.y };
 
             moveCursorToPoint(from) catch {
                 return failCommand("drag", "EVENT_POST_FAILED", "failed to move cursor to drag origin");
@@ -984,10 +1566,8 @@ pub fn drag(input: DragInput) CommandResult {
             var index: u64 = 1;
             while (index <= step_count) : (index += 1) {
                 const fraction = @as(f64, @floatFromInt(index)) / @as(f64, @floatFromInt(step_count));
-                const next_point: c.CGPoint = .{
-                    .x = from.x + (to.x - from.x) * fraction,
-                    .y = from.y + (to.y - from.y) * fraction,
-                };
+                const p = evalDragPoint(input.from, input.to, input.cp, fraction);
+                const next_point: c.CGPoint = .{ .x = p.x, .y = p.y };
 
                 moveCursorToPoint(next_point) catch {
                     return failCommand("drag", "EVENT_POST_FAILED", "failed during drag cursor movement");
@@ -998,7 +1578,37 @@ pub fn drag(input: DragInput) CommandResult {
                 }
             }
 
-            postMouseButtonEvent(to, button_kind, false, 1) catch {
+            const end = evalDragPoint(input.from, input.to, input.cp, 1.0);
+            postMouseButtonEvent(.{ .x = end.x, .y = end.y }, button_kind, false, 1) catch {
+                return failCommand("drag", "EVENT_POST_FAILED", "failed to post drag mouse-up");
+            };
+
+            return okCommand();
+        },
+        .windows => {
+            moveCursorToPointWindows(input.from) catch {
+                return failCommand("drag", "EVENT_POST_FAILED", "failed to move cursor to drag origin");
+            };
+
+            postMouseButtonEventWindows(button_kind, true) catch {
+                return failCommand("drag", "EVENT_POST_FAILED", "failed to post drag mouse-down");
+            };
+
+            var index: u64 = 1;
+            while (index <= step_count) : (index += 1) {
+                const fraction = @as(f64, @floatFromInt(index)) / @as(f64, @floatFromInt(step_count));
+                const p = evalDragPoint(input.from, input.to, input.cp, fraction);
+
+                moveCursorToPointWindows(p) catch {
+                    return failCommand("drag", "EVENT_POST_FAILED", "failed during drag cursor movement");
+                };
+
+                if (step_duration_ns > 0 and index < step_count) {
+                    std.Thread.sleep(step_duration_ns);
+                }
+            }
+
+            postMouseButtonEventWindows(button_kind, false) catch {
                 return failCommand("drag", "EVENT_POST_FAILED", "failed to post drag mouse-up");
             };
 
@@ -1021,12 +1631,9 @@ pub fn drag(input: DragInput) CommandResult {
             var index: u64 = 1;
             while (index <= step_count) : (index += 1) {
                 const fraction = @as(f64, @floatFromInt(index)) / @as(f64, @floatFromInt(step_count));
-                const next_point = Point{
-                    .x = input.from.x + (input.to.x - input.from.x) * fraction,
-                    .y = input.from.y + (input.to.y - input.from.y) * fraction,
-                };
+                const p = evalDragPoint(input.from, input.to, input.cp, fraction);
 
-                moveCursorToPointX11(next_point, display) catch {
+                moveCursorToPointX11(p, display) catch {
                     return failCommand("drag", "EVENT_POST_FAILED", "failed during drag cursor movement");
                 };
 
@@ -1049,6 +1656,57 @@ pub fn drag(input: DragInput) CommandResult {
 }
 
 pub fn displayList() DataResult([]const u8) {
+    if (builtin.target.os.tag == .windows) {
+        const displays = enumerateWindowsDisplays(std.heap.c_allocator) catch {
+            return failData([]const u8, "display-list", "DISPLAY_QUERY_FAILED", "failed to query active displays");
+        };
+        defer std.heap.c_allocator.free(displays);
+
+        var write_buffer: [32 * 1024]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&write_buffer);
+        const writer = stream.writer();
+
+        writer.writeByte('[') catch {
+            return failData([]const u8, "display-list", "SERIALIZE_FAILED", "failed to serialize display list");
+        };
+
+        var i: usize = 0;
+        while (i < displays.len) : (i += 1) {
+            if (i > 0) {
+                writer.writeByte(',') catch {
+                    return failData([]const u8, "display-list", "SERIALIZE_FAILED", "failed to serialize display list");
+                };
+            }
+
+            var name_buffer: [64]u8 = undefined;
+            const display_name = std.fmt.bufPrint(&name_buffer, "Display {d}", .{i}) catch "Display";
+            const item = DisplayInfoOutput{
+                .id = displays[i].id,
+                .index = @intCast(i),
+                .name = display_name,
+                .x = @floatFromInt(displays[i].bounds.x),
+                .y = @floatFromInt(displays[i].bounds.y),
+                .width = @floatFromInt(displays[i].bounds.width),
+                .height = @floatFromInt(displays[i].bounds.height),
+                .scale = 1,
+                .isPrimary = displays[i].is_primary,
+            };
+
+            writer.print("{f}", .{std.json.fmt(item, .{})}) catch {
+                return failData([]const u8, "display-list", "SERIALIZE_FAILED", "failed to serialize display list");
+            };
+        }
+
+        writer.writeByte(']') catch {
+            return failData([]const u8, "display-list", "SERIALIZE_FAILED", "failed to serialize display list");
+        };
+
+        const payload = std.heap.c_allocator.dupe(u8, stream.getWritten()) catch {
+            return failData([]const u8, "display-list", "ALLOC_FAILED", "failed to allocate display list response");
+        };
+        return okData([]const u8, payload);
+    }
+
     if (builtin.target.os.tag == .linux) {
         const display = openX11Display() catch {
             return failData([]const u8, "display-list", "DISPLAY_QUERY_FAILED", "failed to open X11 display");
@@ -1172,8 +1830,15 @@ pub fn displayList() DataResult([]const u8) {
 }
 
 pub fn windowList() DataResult([]const u8) {
+    if (builtin.target.os.tag == .windows) {
+        const payload = serializeWindowListJsonWindows() catch {
+            return failData([]const u8, "window-list", "WINDOW_QUERY_FAILED", "failed to query visible windows");
+        };
+        return okData([]const u8, payload);
+    }
+
     if (builtin.target.os.tag != .macos) {
-        return failData([]const u8, "window-list", "UNSUPPORTED_PLATFORM", "window-list is only supported on macOS");
+        return failData([]const u8, "window-list", "UNSUPPORTED_PLATFORM", "window-list is unsupported on this platform");
     }
 
     const payload = serializeWindowListJson() catch {
@@ -1183,11 +1848,23 @@ pub fn windowList() DataResult([]const u8) {
 }
 
 pub fn clipboardGet() DataResult([]const u8) {
+    if (builtin.target.os.tag == .windows) {
+        const value = clipboardGetWindows() catch {
+            return failData([]const u8, "clipboard-get", "READ_FAILED", "failed to read clipboard text");
+        };
+        return okData([]const u8, value);
+    }
     return failData([]const u8, "clipboard-get", "NOT_SUPPORTED", "clipboard-get is not supported on this platform");
 }
 
 pub fn clipboardSet(input: ClipboardSetInput) CommandResult {
-    _ = input;
+    if (builtin.target.os.tag == .windows) {
+        clipboardSetWindows(input.text) catch {
+            return failCommand("clipboard-set", "WRITE_FAILED", "failed to set clipboard text");
+        };
+        return okCommand();
+    }
+
     return failCommand("clipboard-set", "NOT_SUPPORTED", "clipboard-set is not supported on this platform");
 }
 
@@ -1512,13 +2189,13 @@ fn typeTextWindows(input: TypeTextInput) !void {
             const unit = utf16.units[unit_index];
             var down = std.mem.zeroes(c_windows.INPUT);
             down.type = c_windows.INPUT_KEYBOARD;
-            down.Anonymous.ki.wVk = 0;
-            down.Anonymous.ki.wScan = unit;
-            down.Anonymous.ki.dwFlags = c_windows.KEYEVENTF_UNICODE;
+            down.unnamed_0.ki.wVk = 0;
+            down.unnamed_0.ki.wScan = unit;
+            down.unnamed_0.ki.dwFlags = c_windows.KEYEVENTF_UNICODE;
             _ = c_windows.SendInput(1, &down, @sizeOf(c_windows.INPUT));
 
             var up = down;
-            up.Anonymous.ki.dwFlags = c_windows.KEYEVENTF_UNICODE | c_windows.KEYEVENTF_KEYUP;
+            up.unnamed_0.ki.dwFlags = c_windows.KEYEVENTF_UNICODE | c_windows.KEYEVENTF_KEYUP;
             _ = c_windows.SendInput(1, &up, @sizeOf(c_windows.INPUT));
         }
 
@@ -1583,9 +2260,9 @@ fn keyCodeForWindowsKey(key_name: []const u8) !u16 {
 fn postWindowsVirtualKey(virtual_key: u16, is_down: bool) void {
     var event = std.mem.zeroes(c_windows.INPUT);
     event.type = c_windows.INPUT_KEYBOARD;
-    event.Anonymous.ki.wVk = virtual_key;
-    event.Anonymous.ki.wScan = 0;
-    event.Anonymous.ki.dwFlags = if (is_down) 0 else c_windows.KEYEVENTF_KEYUP;
+    event.unnamed_0.ki.wVk = virtual_key;
+    event.unnamed_0.ki.wScan = 0;
+    event.unnamed_0.ki.dwFlags = if (is_down) 0 else c_windows.KEYEVENTF_KEYUP;
     _ = c_windows.SendInput(1, &event, @sizeOf(c_windows.INPUT));
 }
 
@@ -1900,6 +2577,137 @@ fn serializeWindowListJson() ![]u8 {
     return std.heap.c_allocator.dupe(u8, stream.getWritten());
 }
 
+const WindowsWindowListContext = struct {
+    stream: *std.io.FixedBufferStream([]u8),
+    first: bool,
+    failed: bool = false,
+};
+
+fn queryProcessNameWindows(process_id: c_windows.DWORD, buffer: []u8) []const u8 {
+    if (process_id == 0) {
+        return "unknown";
+    }
+
+    const process_handle = c_windows.OpenProcess(c_windows.PROCESS_QUERY_LIMITED_INFORMATION, c_windows.FALSE, process_id);
+    if (process_handle == null) {
+        return "unknown";
+    }
+    defer _ = c_windows.CloseHandle(process_handle);
+
+    var size: c_windows.DWORD = @as(c_windows.DWORD, @intCast(buffer.len));
+    if (c_windows.QueryFullProcessImageNameA(process_handle, 0, buffer.ptr, &size) == 0 or size == 0) {
+        return "unknown";
+    }
+
+    const full_path = buffer[0..size];
+    if (std.mem.lastIndexOfAny(u8, full_path, "\\/")) |idx| {
+        if (idx + 1 < full_path.len) {
+            return full_path[idx + 1 ..];
+        }
+    }
+    return full_path;
+}
+
+fn enumWindowsWindowCallback(hwnd: c_windows.HWND, l_param: c_windows.LPARAM) callconv(.winapi) c_int {
+    const context: *WindowsWindowListContext = @ptrFromInt(@as(usize, @intCast(l_param)));
+
+    if (c_windows.IsWindowVisible(hwnd) == 0) {
+        return c_windows.TRUE;
+    }
+
+    if (c_windows.GetWindow(hwnd, c_windows.GW_OWNER) != null) {
+        return c_windows.TRUE;
+    }
+
+    const ex_style = @as(c_ulong, @intCast(c_windows.GetWindowLongPtrA(hwnd, c_windows.GWL_EXSTYLE)));
+    if ((ex_style & c_windows.WS_EX_TOOLWINDOW) != 0 or (ex_style & c_windows.WS_EX_NOACTIVATE) != 0) {
+        return c_windows.TRUE;
+    }
+
+    const title_length = c_windows.GetWindowTextLengthA(hwnd);
+    if (title_length <= 0) {
+        return c_windows.TRUE;
+    }
+
+    var title_buffer: [512]u8 = undefined;
+    const copied = c_windows.GetWindowTextA(hwnd, &title_buffer, title_buffer.len);
+    if (copied <= 0) {
+        return c_windows.TRUE;
+    }
+    const title = title_buffer[0..@as(usize, @intCast(copied))];
+
+    var rect: c_windows.RECT = std.mem.zeroes(c_windows.RECT);
+    if (c_windows.GetWindowRect(hwnd, &rect) == 0) {
+        return c_windows.TRUE;
+    }
+    const width = rect.right - rect.left;
+    const height = rect.bottom - rect.top;
+    if (width <= 0 or height <= 0) {
+        return c_windows.TRUE;
+    }
+
+    var process_id: c_windows.DWORD = 0;
+    _ = c_windows.GetWindowThreadProcessId(hwnd, &process_id);
+
+    var process_name_buffer: [512]u8 = undefined;
+    const owner_name = queryProcessNameWindows(process_id, &process_name_buffer);
+    const desktop_index = resolveWindowsDesktopIndexForRect(.{
+        .x = rect.left,
+        .y = rect.top,
+        .width = width,
+        .height = height,
+    }) catch 0;
+
+    const item = WindowInfoOutput{
+        .id = @as(u32, @truncate(@as(usize, @intFromPtr(hwnd)))),
+        .ownerPid = @as(i32, @intCast(process_id)),
+        .ownerName = owner_name,
+        .title = title,
+        .x = @floatFromInt(rect.left),
+        .y = @floatFromInt(rect.top),
+        .width = @floatFromInt(width),
+        .height = @floatFromInt(height),
+        .desktopIndex = @intCast(desktop_index),
+    };
+
+    if (!context.first) {
+        context.stream.writer().writeByte(',') catch {
+            context.failed = true;
+            return c_windows.FALSE;
+        };
+    }
+    context.first = false;
+
+    context.stream.writer().print("{f}", .{std.json.fmt(item, .{})}) catch {
+        context.failed = true;
+        return c_windows.FALSE;
+    };
+
+    return c_windows.TRUE;
+}
+
+fn serializeWindowListJsonWindows() ![]u8 {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    var write_buffer: [64 * 1024]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&write_buffer);
+    try stream.writer().writeByte('[');
+
+    var context = WindowsWindowListContext{ .stream = &stream, .first = true };
+    const ok = c_windows.EnumWindows(
+        enumWindowsWindowCallback,
+        @as(c_windows.LPARAM, @intCast(@intFromPtr(&context))),
+    );
+    if (ok == 0 or context.failed) {
+        return error.WindowQueryFailed;
+    }
+
+    try stream.writer().writeByte(']');
+    return std.heap.c_allocator.dupe(u8, stream.getWritten());
+}
+
 fn scaleScreenshotImageIfNeeded(image: c.CGImageRef) !ScaledScreenshotImage {
     const image_width = @as(f64, @floatFromInt(c.CGImageGetWidth(image)));
     const image_height = @as(f64, @floatFromInt(c.CGImageGetHeight(image)));
@@ -2203,6 +3011,182 @@ fn moveCursorToPoint(point: c.CGPoint) !void {
     }
     defer c.CFRelease(move_event);
     c.CGEventPost(c.kCGHIDEventTap, move_event);
+}
+
+fn mouseEventFlagsForButton(button: MouseButtonKind, is_down: bool) c_uint {
+    return switch (button) {
+        .left => if (is_down) c_windows.MOUSEEVENTF_LEFTDOWN else c_windows.MOUSEEVENTF_LEFTUP,
+        .right => if (is_down) c_windows.MOUSEEVENTF_RIGHTDOWN else c_windows.MOUSEEVENTF_RIGHTUP,
+        .middle => if (is_down) c_windows.MOUSEEVENTF_MIDDLEDOWN else c_windows.MOUSEEVENTF_MIDDLEUP,
+    };
+}
+
+fn postMouseButtonEventWindows(button: MouseButtonKind, is_down: bool) !void {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    var event = std.mem.zeroes(c_windows.INPUT);
+    event.type = c_windows.INPUT_MOUSE;
+    event.unnamed_0.mi.dwFlags = mouseEventFlagsForButton(button, is_down);
+    const sent = c_windows.SendInput(1, &event, @sizeOf(c_windows.INPUT));
+    if (sent == 0) {
+        return error.EventPostFailed;
+    }
+}
+
+fn moveCursorToPointWindows(point: Point) !void {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+    ensureWindowsDpiAware();
+
+    const x = try normalizedCoordinate(point.x);
+    const y = try normalizedCoordinate(point.y);
+    if (c_windows.SetCursorPos(x, y) == 0) {
+        return error.EventPostFailed;
+    }
+}
+
+fn utf8ToUtf16AllocZ(input: []const u8) ![]u16 {
+    const length = c_windows.MultiByteToWideChar(
+        c_windows.CP_UTF8,
+        0,
+        input.ptr,
+        @as(c_int, @intCast(input.len)),
+        null,
+        0,
+    );
+    if (length <= 0) {
+        return error.EncodingFailed;
+    }
+
+    const out = try std.heap.c_allocator.alloc(u16, @as(usize, @intCast(length + 1)));
+    errdefer std.heap.c_allocator.free(out);
+
+    const written = c_windows.MultiByteToWideChar(
+        c_windows.CP_UTF8,
+        0,
+        input.ptr,
+        @as(c_int, @intCast(input.len)),
+        @ptrCast(out.ptr),
+        length,
+    );
+    if (written <= 0) {
+        return error.EncodingFailed;
+    }
+    out[@as(usize, @intCast(written))] = 0;
+    return out;
+}
+
+fn openClipboardWithRetry() !void {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    var attempt: u8 = 0;
+    while (attempt < 5) : (attempt += 1) {
+        if (c_windows.OpenClipboard(null) != 0) {
+            return;
+        }
+        c_windows.Sleep(100);
+    }
+
+    return error.ClipboardOpenFailed;
+}
+
+fn clipboardGetWindows() ![]u8 {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    try openClipboardWithRetry();
+    defer _ = c_windows.CloseClipboard();
+
+    const data_handle = c_windows.GetClipboardData(c_windows.CF_UNICODETEXT);
+    if (data_handle == null) {
+        return error.ClipboardReadFailed;
+    }
+
+    const data_ptr = c_windows.GlobalLock(data_handle) orelse return error.ClipboardReadFailed;
+    defer _ = c_windows.GlobalUnlock(data_handle);
+
+    const wide_ptr: [*:0]const u16 = @ptrCast(@alignCast(data_ptr));
+    const wide_len = c_windows.lstrlenW(wide_ptr);
+    if (wide_len <= 0) {
+        return std.heap.c_allocator.dupe(u8, "");
+    }
+
+    const utf8_len = c_windows.WideCharToMultiByte(
+        c_windows.CP_UTF8,
+        0,
+        wide_ptr,
+        wide_len,
+        null,
+        0,
+        null,
+        null,
+    );
+    if (utf8_len <= 0) {
+        return error.EncodingFailed;
+    }
+
+    const out = try std.heap.c_allocator.alloc(u8, @as(usize, @intCast(utf8_len)));
+    errdefer std.heap.c_allocator.free(out);
+
+    const written = c_windows.WideCharToMultiByte(
+        c_windows.CP_UTF8,
+        0,
+        wide_ptr,
+        wide_len,
+        out.ptr,
+        utf8_len,
+        null,
+        null,
+    );
+    if (written <= 0) {
+        return error.EncodingFailed;
+    }
+
+    return out[0..@as(usize, @intCast(written))];
+}
+
+fn clipboardSetWindows(text: []const u8) !void {
+    if (builtin.target.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+
+    const wide = try utf8ToUtf16AllocZ(text);
+    defer std.heap.c_allocator.free(wide);
+
+    const byte_len = wide.len * @sizeOf(u16);
+    const memory_handle = c_windows.GlobalAlloc(c_windows.GMEM_MOVEABLE, byte_len);
+    if (memory_handle == null) {
+        return error.ClipboardWriteFailed;
+    }
+
+    const memory_ptr = c_windows.GlobalLock(memory_handle) orelse {
+        _ = c_windows.GlobalFree(memory_handle);
+        return error.ClipboardWriteFailed;
+    };
+    @memcpy(@as([*]u8, @ptrCast(memory_ptr))[0..byte_len], std.mem.sliceAsBytes(wide));
+    _ = c_windows.GlobalUnlock(memory_handle);
+
+    openClipboardWithRetry() catch {
+        _ = c_windows.GlobalFree(memory_handle);
+        return error.ClipboardOpenFailed;
+    };
+    defer _ = c_windows.CloseClipboard();
+
+    if (c_windows.EmptyClipboard() == 0) {
+        _ = c_windows.GlobalFree(memory_handle);
+        return error.ClipboardWriteFailed;
+    }
+
+    if (c_windows.SetClipboardData(c_windows.CF_UNICODETEXT, memory_handle) == null) {
+        _ = c_windows.GlobalFree(memory_handle);
+        return error.ClipboardWriteFailed;
+    }
 }
 
 fn openX11Display() !*c_x11.Display {

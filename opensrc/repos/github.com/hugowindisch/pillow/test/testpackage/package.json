@@ -1,0 +1,10 @@
+{
+    "name": "testpackage",
+    "version": "0.0.1",
+    "main": "./lib/main",
+    "engines": {
+        "pillow": "*"
+    },
+    "author": "Hugo Windisch <hugo.windisch@gmail.com>",
+    "homepage": "http://www.swallowapps.com"
+}

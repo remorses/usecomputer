@@ -1,0 +1,63 @@
+{
+  "updatedAt": "2026-03-25T15:57:48.124Z",
+  "packages": [
+    {
+      "name": "pynput",
+      "version": "0.4.0",
+      "registry": "npm",
+      "path": "repos/github.com/sparrowsl/pynput",
+      "fetchedAt": "2026-03-25T15:57:15.713Z"
+    },
+    {
+      "name": "pillow",
+      "version": "0.0.9",
+      "registry": "npm",
+      "path": "repos/github.com/hugowindisch/pillow",
+      "fetchedAt": "2026-03-25T15:57:18.118Z"
+    }
+  ],
+  "repos": [
+    {
+      "name": "github.com/callstackincubator/agent-device",
+      "version": "main",
+      "path": "repos/github.com/callstackincubator/agent-device",
+      "fetchedAt": "2026-03-24T16:02:49.739Z"
+    },
+    {
+      "name": "github.com/trycua/cua",
+      "version": "main",
+      "path": "repos/github.com/trycua/cua",
+      "fetchedAt": "2026-03-25T15:57:14.144Z"
+    },
+    {
+      "name": "github.com/moses-palmer/pynput",
+      "version": "master",
+      "path": "repos/github.com/moses-palmer/pynput",
+      "fetchedAt": "2026-03-25T15:57:30.465Z"
+    },
+    {
+      "name": "github.com/python-pillow/Pillow",
+      "version": "main",
+      "path": "repos/github.com/python-pillow/Pillow",
+      "fetchedAt": "2026-03-25T15:57:42.474Z"
+    },
+    {
+      "name": "github.com/Kalmat/PyWinCtl",
+      "version": "master",
+      "path": "repos/github.com/Kalmat/PyWinCtl",
+      "fetchedAt": "2026-03-25T15:57:43.614Z"
+    },
+    {
+      "name": "github.com/mhammond/pywin32",
+      "version": "main",
+      "path": "repos/github.com/mhammond/pywin32",
+      "fetchedAt": "2026-03-25T15:57:46.883Z"
+    },
+    {
+      "name": "github.com/asweigart/pyperclip",
+      "version": "master",
+      "path": "repos/github.com/asweigart/pyperclip",
+      "fetchedAt": "2026-03-25T15:57:48.124Z"
+    }
+  ]
+}

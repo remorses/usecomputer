@@ -247,12 +247,14 @@ export function createBridgeFromNative({ nativeModule }: { nativeModule: NativeM
       const nativeInput: {
         from: Point
         to: Point
+        cp: Point | null
         durationMs: number | null
         button: 'left' | 'right' | 'middle' | null
       } = {
         from: input.from,
         to: input.to,
-        durationMs: input.durationMs ?? null,
+        cp: input.cp ?? null,
+        durationMs: null,
         button: input.button ?? null,
       }
 

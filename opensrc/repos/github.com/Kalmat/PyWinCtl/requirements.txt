@@ -1,0 +1,8 @@
+# Requirements needed for development
+#     Run: `pip install -r requirements.txt`
+# Build/Production requirements are found in setup.py
+#     Run: `pip install -e .`
+#
+# installs dependencies from setup.py, and the package itself,
+# in editable mode
+-e .[dev]

@@ -170,8 +170,8 @@ fn scrollWindows(args: struct {
 
     var event = std.mem.zeroes(c_windows.INPUT);
     event.type = c_windows.INPUT_MOUSE;
-    event.Anonymous.mi.dwFlags = flags;
-    event.Anonymous.mi.mouseData = @as(c_uint, @intCast(delta * c_windows.WHEEL_DELTA));
+    event.unnamed_0.mi.dwFlags = flags;
+    event.unnamed_0.mi.mouseData = @as(c_uint, @intCast(delta * c_windows.WHEEL_DELTA));
     const sent = c_windows.SendInput(1, &event, @sizeOf(c_windows.INPUT));
     if (sent == 0) {
         return error.EventPostFailed;

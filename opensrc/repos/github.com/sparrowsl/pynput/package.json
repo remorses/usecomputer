@@ -1,0 +1,33 @@
+{
+	"name": "pynput",
+	"version": "0.4.0",
+	"private": false,
+	"description": "simple, small, zero dependency library for reading input",
+	"main": "index.js",
+	"scripts": {
+		"check": "npx @biomejs/biome check --write ."
+	},
+	"keywords": ["input"],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sparrowsl/pynput.git"
+	},
+	"type": "module",
+	"contributors": [
+		{
+			"name": "Sparrow",
+			"email": "benjaminthorpe19@gmail.com",
+			"url": "https://github.com/sparrowsl"
+		},
+		{
+			"name": "Abdullah Mustapha",
+			"email": "abdullahmu4life@gmail.com",
+			"url": "https://github.com/abdullah4tech"
+		}
+	],
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/sparrowsl/pynput/issues"
+	},
+	"homepage": "https://github.com/sparrowsl/pynput#readme"
+}

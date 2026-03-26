@@ -1,0 +1,11 @@
+*.egg
+*.egg-info/
+*.eggs/
+*.pyc
+*.sublime-*
+*.swo
+*.swp
+
+build/*
+dist/*
+

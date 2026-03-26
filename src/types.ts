@@ -97,7 +97,7 @@ export type ScrollInput = {
 export type DragInput = {
   from: Point
   to: Point
-  durationMs?: number
+  cp?: Point
   button: MouseButton
 }
 

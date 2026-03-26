@@ -6,3 +6,5 @@ tmp
 .zig-cache
 zig-out
 __snapshots__
+opensrc
+zig-pkg

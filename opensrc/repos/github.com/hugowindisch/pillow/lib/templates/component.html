@@ -1,0 +1,22 @@
+<html>
+<head>
+    <title>${main}</title>
+{{each css}}    <link rel="stylesheet" type="text/css" href="${$value}">
+{{/each}}
+    <script src = "pillow.js"></script>
+{{each dependencies}}    <script src = "${$value}"></script>
+{{/each}}
+    <script>
+        window.onload = function () {
+            var pillow = define.pillow,
+                require = pillow.makeRequire(pillow.createApplicationDomain(), '');
+{{if jquery}}
+            pillow.supportJQuery(require);
+{{/if}}
+            require('${main}');
+        }
+    </script>
+</head>
+<body>
+</body>
+</html>

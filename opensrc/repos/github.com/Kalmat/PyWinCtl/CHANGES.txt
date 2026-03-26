@@ -1,0 +1,47 @@
+0.4.01, 2024/09/22 -- ALL: Added getAllWindowsDict() general function. Added getPID() method.
+                      LINUX: Added bad window filter to check for window.id == 0
+0.4, 2023/10/11 -- ALL: Added getMonitor() as alias for getDisplay()
+                   LINUX: Added ewmhlib as separate module. Fixed getAllMonitors() returns empty list if XDG_CURRENT_DESKTOP is not set. Improved getClientFrame() and getExtraFrameSize() by properly using _NET_EXTENTS and GTK_EXTENTS, Added a new Window.LEGACY_NAME="WM_NAME" property (for apps not setting _NET_WM_NAME)
+                          (ewmhlib): Fixed Mint returning str (not bytes) in some properties. Fixed Mint not having get_monitors() method in xrandr extension.
+                   MACOS: Removed MacOSNSWindow. Fixed lowerWindow(), raiseWindow() and isAlive. Fixed test_pywinctl.py to avoid crashing in small screens
+0.3, 2023/09/20 -- LINUX: Improved Wayland support for some apps which (surprisingly) work using X11/XOrg (thanks to SamuMazzi for his help!).
+0.2, 2023/09/09 -- LINUX: Added experimental Wayland support (only if unsafe mode enabled and only for some apps).
+                          Fixed ewmhlib freezing in Wayland when connecting to display ":1", and added some performance improvements
+0.1, 2023/09/06 -- LINUX: Fixed all title-related methods (title, getAllTitles, getAllAppsWindowTitles, etc.) returning empty values when using Xlib's get_wm_name()
+                   MACOS: Tested OK in multi-monitor setups (based on PyWinBox and PyMonCtl features).
+                   ALL: getDisplay() method returns a list of monitors.
+0.0.50, 2023/02/03 -- ALL: Added PyMonCtl module to improve multi-monitor capabilities, added setParent() method. Reorganized to avoid IDEs showing external and / or private elements
+                      WINDOWS: Simplified alwaysOnBottom(), found a smarter way to refresh window after bringing it back with sendBehind()
+                      MACOSNSWINDOW: Added experimental acceptInput() method (not possible in AppleScript version)
+0.0.45, 2023/08/21 -- ALL: Included PyWinBox module which hopefully better handles multi-monitor setups (macOS tests pending)
+                      LINUX: Fixed geometry calculations (thanks to roym899), removed ewmh and pynput dependencies
+                      WINDOWS: Fixed getAllWindows() not returning all relevant windows (thanks to Xenolphthalein)
+                      MACOS: Fixed 'missing value' in window titles and app names (thanks to yjmd2222), fixed getClientFrame() to be invoked from non-main threads (thanks to super-iby)
+0.0.43, 2023/02/13 -- ALL: Added Window.bbox r/w property, a bounding box in the same (left, top, right, bottom) format used by PIL/Pillow, Included py.typed in wheel package
+                      Linux: Added 'user' argument to restore() and activate() methods as required by some Linux WMs to comply with the request
+0.0.42, 2022/12/09 -- Really fixed typing_extensions dependency and setup.py dependencies
+0.0.41, 2022/12/09 -- Fixed requirements.txt with typing_extensions dependency
+0.0.40, 2022/12/07 -- New typed version. Improved Window class to accept Window object or window id (int/str), added acceptInput(), added getTopWindowAt(), fixed and improved sendBehind() on Ubuntu 22.04+ and Mint/Cinnamon,
+0.0.39, 2022/06/07 -- Improved watchdog, fixed Mint/Cinnamon sendBehind() method, added macOS AppScript alwaysOnTop() and alwaysOnBottom() methods
+0.0.38, 2022/05/29 -- Fixed pynput version typo in setup.py requirements
+0.0.37, 2022/05/26 -- macOS Apple Script version: fixed crash when title contains extra commas
+0.0.36, 2022/05/06 -- Removed numpy dependency
+0.0.35, 2022/04/27 -- macOS Apple Script version: fixed crash in some methods when permissions not granted and added checkPermissions() function.
+0.0.34, 2022/04/06 -- Added DIFFRATIO (difflib similarity ratio) to getWindowsWithTitle() and getAppsWithName(). Linux: fixed getAllScreens() for LXDE. macOS (Apple Script version): Fixed getWindowsWithTitle() and added updatedTitle property, improved watchdog to detect title changes and fixed isAlive property
+0.0.33, 2022/04/04 -- Added getAppsWithName() function with regex-like options to search app names. Added param to getWindowsWithTitle() used to define app names in which search window titles
+0.0.32, 2022/03/29 -- Added WinWatchDog class to hook to some window changes notifications. Added regex-like search options in getWindowsWithTitle() function. Fixed getMenu() method for menus with 5+ levels.
+0.0.31, 2022/03/27 -- Added getExtraFrame(), getClientFrame() methods and isAlive property. Fixed isVisible and getAllScreens() for older macOS
+0.0.29, 2022/03/22 -- Added getAllScreens() function and getDisplay() method. Experimental (not tested) in Linux and macOS
+0.0.28, 2022/03/10 -- macOS (Apple Script version): fixed isActive() (for apps with limited AppScript support) and getChildren() methods
+0.0.27, 2022/03/09 -- macOS (Apple Script version): fixed activate() method
+0.0.26, 2022/03/09 -- macOS (Apple Script version): Added legible "shortcut" entry in MENU struct (only if addItemInfo enabled)
+0.0.25, 2022/03/09 -- Improved methods documentation, homogenized getMenuItemRect() args, and fixed macOS (Apple Script version) getMenu() method
+0.0.24. 2022/03/06 -- Added getAllAppsTitles() and getAllAppsWindowsTitles() functions, and getChildren() method
+0.0.23, 2022/03/05 -- Fixed Apple Script getAllWindows() not returning all open windows
+0.0.19, 2022/03/02 -- Added getWorkArea() and version() methods; and improved performance of macOS Apple Script lists-related methods (getAllTitles(), getAllWindows() and getWindowsWithTitle())
+0.0.17, 2022/02/28 -- Added parent-related methods tests, and fixed some bugs
+0.0.15, 2022/02/28 -- Added getParent(), getHandle(), isParent(), isChild() methods
+0.0.12, 2022/02/27 -- Brown paper bag version
+0.0.11, 2022/02/22 -- Added Menu info and methods for Windows and macOS
+0.0.10, 2021/11/12 -- Added Linux and macOS support
+0.0.9,  2021/09/14 -- Forked from PyGetWindow

@@ -1,0 +1,20 @@
+PyWinCtl authors, contributors and bugs/issues raisers:
+
+Kalmat https://github.com/Kalmat
+Rodrigo Silva (MestreLion) https://github.com/MestreLion
+Samuel T. (Avasam) https://github.com/Avasam
+super-ibby (ibby) https://github.com/super-ibby
+elraymond https://github.com/elraymond
+leoshusar https://github.com/leoshusar
+macdeport https://github.com/macdeport
+holychowders https://github.com/holychowders
+Anthony Molinaro (djnym) https://github.com/djnym
+Kyle King https://github.com/KyleKing
+Leonard Bruns https://github.com/roym899
+ReaperMantis https://github.com/ReaperMantis
+Xenolphthalein - https://github.com/Xenolphthalein
+odknt - https://github.com/odkntSamuMazzi - https://github.com/SamuMazzi
+SamuMazzi - https://github.com/SamuMazzi
+
+In general, all those who so generously share their work and knowledge on Internet (stackoverflow, github, ...)
+so I could find a solution or a string to pull!

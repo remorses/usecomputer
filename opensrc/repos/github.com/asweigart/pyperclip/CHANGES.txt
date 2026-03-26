@@ -1,0 +1,41 @@
+v1.7.0, 2018/09/24 -- Added ability to read/write clipboard by running `python -m pyperclip`
+v1.6.5, 2018/09/24 -- Fix for issue #129, where unicode text caused exceptions on Python 2.
+v1.6.4, 2018/07/18 -- Adjusted setup.py to include the long description.
+v1.6.3, 2018/07/18 -- Adjusted setup.py to include the long description.
+v1.6.2, 2018/07/18 -- Adjusted setup.py to include the long description.
+v1.6.1, 2018/07/18 -- Adjusted setup.py to include the long description.
+v1.6.1, 2018/05/23 -- Added Windows subsystem for Linux support.
+v1.5.32, 2017/10/29 -- Added limited cygwin support.
+v1.5.31, 2017/10/29 -- Fixed another mistake where 'posix' was checked for OS X instead of 'mac' due to a mistaken merge. Added lazy loading.
+v1.5.30, 2017/10/29 -- Fixed the encoding that was set to "uft-8"
+v1.5.29, 2017/10/29 -- Pyperclip works with qtpy module, osx can use objc now, set pyqt as lower priority than xsel/xclip/klipper, add support for PyQt5
+v1.5.28, 2017/10/28 -- Capture stderr of xclip subprocess, fixed issue #88 where emojii cut off the last character, allowed selection between PRIMARY and CLIPBOARD for xsel and xclip
+v1.5.27, 2016/03/14 -- Disable broken cygwin implementation until issue 55 can be fixed
+v1.5.26, 2016/01/20 -- Fix #51, Replace wcscpy_s with memmove for Windows XP.
+v1.5.25, 2015/12/13 -- Fix #53, PEP8 changes, STRING_FUNCTION rename
+v1.5.24, 2015/11/14 -- Fix for Import ctypes.wintypes on Linux issue.
+v1.5.23, 2015/11/14 -- <no change, mistaken version bump>
+v1.5.22, 2015/11/08 -- Fix segfault for PyQt4 copy/paste functions
+v1.5.21, 2015/11/04 -- Import fixes.
+v1.5.20, 2015/10/30 -- Big refactoring and testing additions from mhils. Thanks!
+v1.5.19, 2015/10/29 -- Updating setup.py to pull version info from __init__.py
+v1.5.18, 2015/10/29 -- Added _noCopy/_noPaste functions to raise NotImplementedError exceptions when called, instead of raising exceptions when Pyperclip is imported.
+v1.5.17, 2015/10/28 -- Refactoring to add determineFunctionSet() and setFunctions() functions.
+v1.5.16, 2015/10/28 -- Fix issue 31, Klipper adds newline to the end of the pasted text.
+v1.5.15, 2015/10/12 -- Removing _pyperclip.py file which accidentally got included in the PyPI package.
+v1.5.14, 2015/10/09 -- Fixed major Windows problems.
+v1.5.13, 2015/09/23 -- Added other python versions to the setup.py file.
+v1.5.12, 2015/09/18 -- Added _pasteKlipper() & _copyKlipper(). Thanks contrixed!
+v1.5.11, 2015/06/01 -- remove str() from _copy functions. Fix for ascii default encoding
+v1.5.10, 2015/05/22 -- Fixed pasting from xsel and on mac.
+v1.5.9, 2015/02/17 -- Refactoring for Python 2/3 compatibility.
+v1.5.8, 2015/02/05 -- Bug fixes. xsel: copy to clipboard, don't inherit fds, fds closes for xclip
+v1.5.7, 2014/12/07 -- Bug fix for issue 10 (calling OpenClipboard on Windows with wrong argument.)
+v1.5.6, 2014/12/05 -- Corrections for copying on Windows.
+v1.5.5, 2014/12/04 -- Bug fix for unicode on Windows.
+v1.5.4, 2014/09/09 -- Undoing OS X paste() bug fix because it requires 2.7, breaks pre2.7 versions.
+v1.5.3, 2014/09/05 -- Bug fix for OS X paste(). Thanks to sscherfke
+v1.5.2, 2014/08/24 -- Bug fix in xsel paste function. Thanks to Nikolaos-Digenis Karagiannis.
+v1.5.0, 2014/08/16 -- Refactored code to put it on PyPI. Also added support on Cygwin platforms and unit tests.
+v1.3.0, 2011/09/13 -- Changed ctypes.windll.user32.OpenClipboard(None) to ctypes.windll.user32.OpenClipboard(0), after some people ran into some TypeError
+v1.2.0, 2011/06/14 -- Use the platform module to help determine OS.

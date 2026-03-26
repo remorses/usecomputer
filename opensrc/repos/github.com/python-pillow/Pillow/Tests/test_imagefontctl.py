@@ -1,0 +1,385 @@
+from __future__ import annotations
+
+import pytest
+
+from PIL import Image, ImageDraw, ImageFont
+
+from .helper import (
+    assert_image_equal_tofile,
+    assert_image_similar_tofile,
+    has_feature_version,
+    skip_unless_feature,
+)
+
+FONT_SIZE = 20
+FONT_PATH = "Tests/fonts/DejaVuSans/DejaVuSans.ttf"
+
+pytestmark = skip_unless_feature("raqm")
+
+
+def test_english() -> None:
+    # smoke test, this should not fail
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "TEST", font=ttf, fill=500, direction="ltr")
+
+
+def test_complex_text() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "اهلا عمان", font=ttf, fill=500)
+
+    target = "Tests/images/test_text.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_y_offset() -> None:
+    ttf = ImageFont.truetype("Tests/fonts/NotoNastaliqUrdu-Regular.ttf", FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "العالم العربي", font=ttf, fill=500)
+
+    target = "Tests/images/test_y_offset.png"
+    assert_image_similar_tofile(im, target, 1.7)
+
+
+def test_complex_unicode_text() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "السلام عليكم", font=ttf, fill=500)
+
+    target = "Tests/images/test_complex_unicode_text.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+    ttf = ImageFont.truetype("Tests/fonts/KhmerOSBattambang-Regular.ttf", FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "លោកុប្បត្តិ", font=ttf, fill=500)
+
+    target = "Tests/images/test_complex_unicode_text2.png"
+    assert_image_similar_tofile(im, target, 2.33)
+
+
+def test_text_direction_rtl() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "English عربي", font=ttf, fill=500, direction="rtl")
+
+    target = "Tests/images/test_direction_rtl.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_text_direction_ltr() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "سلطنة عمان Oman", font=ttf, fill=500, direction="ltr")
+
+    target = "Tests/images/test_direction_ltr.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_text_direction_rtl2() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "Oman سلطنة عمان", font=ttf, fill=500, direction="rtl")
+
+    target = "Tests/images/test_direction_ltr.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_text_direction_ttb() -> None:
+    ttf = ImageFont.truetype("Tests/fonts/NotoSansJP-Regular.otf", FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(100, 300))
+    draw = ImageDraw.Draw(im)
+    if not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    draw.text((0, 0), "English あい", font=ttf, fill=500, direction="ttb")
+
+    target = "Tests/images/test_direction_ttb.png"
+    assert_image_similar_tofile(im, target, 2.8)
+
+
+def test_text_direction_ttb_stroke() -> None:
+    ttf = ImageFont.truetype("Tests/fonts/NotoSansJP-Regular.otf", 50)
+
+    im = Image.new(mode="RGB", size=(100, 300))
+    draw = ImageDraw.Draw(im)
+    if not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    draw.text(
+        (27, 27),
+        "あい",
+        font=ttf,
+        fill=500,
+        direction="ttb",
+        stroke_width=2,
+        stroke_fill="#0f0",
+    )
+
+    target = "Tests/images/test_direction_ttb_stroke.png"
+    assert_image_similar_tofile(im, target, 19.4)
+
+
+def test_ligature_features() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "filling", font=ttf, fill=500, features=["-liga"])
+    target = "Tests/images/test_ligature_features.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+    liga_bbox = ttf.getbbox("fi", features=["-liga"])
+    assert liga_bbox == (0, 4, 13, 19)
+
+
+def test_kerning_features() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "TeToAV", font=ttf, fill=500, features=["-kern"])
+
+    target = "Tests/images/test_kerning_features.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_arabictext_features() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text(
+        (0, 0),
+        "اللغة العربية",
+        font=ttf,
+        fill=500,
+        features=["-fina", "-init", "-medi"],
+    )
+
+    target = "Tests/images/test_arabictext_features.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+def test_x_max_and_y_offset() -> None:
+    ttf = ImageFont.truetype("Tests/fonts/ArefRuqaa-Regular.ttf", 40)
+
+    im = Image.new(mode="RGB", size=(50, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "لح", font=ttf, fill=500)
+
+    target = "Tests/images/test_x_max_and_y_offset.png"
+    assert_image_similar_tofile(im, target, 3.8)
+
+
+def test_language() -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+
+    im = Image.new(mode="RGB", size=(300, 100))
+    draw = ImageDraw.Draw(im)
+    draw.text((0, 0), "абвг", font=ttf, fill=500, language="sr")
+
+    target = "Tests/images/test_language.png"
+    assert_image_similar_tofile(im, target, 0.5)
+
+
+@pytest.mark.parametrize("mode", ("L", "1"))
+@pytest.mark.parametrize(
+    "text, direction, expected",
+    (
+        ("سلطنة عمان Oman", None, 173.703125),
+        ("سلطنة عمان Oman", "ltr", 173.703125),
+        ("Oman سلطنة عمان", "rtl", 173.703125),
+        ("English عربي", "rtl", 123.796875),
+        ("test", "ttb", 80.0),
+    ),
+    ids=("None", "ltr", "rtl2", "rtl", "ttb"),
+)
+def test_getlength(
+    mode: str, text: str, direction: str | None, expected: float
+) -> None:
+    ttf = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+    im = Image.new(mode, (1, 1), 0)
+    d = ImageDraw.Draw(im)
+
+    if direction == "ttb" and not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    assert d.textlength(text, ttf, direction) == expected
+
+
+@pytest.mark.parametrize("mode", ("L", "1"))
+@pytest.mark.parametrize("direction", ("ltr", "ttb"))
+@pytest.mark.parametrize(
+    "text",
+    ("i" + ("\u030c" * 15) + "i", "i" + "\u032c" * 15 + "i", "\u035cii", "i\u0305i"),
+    ids=("caron-above", "caron-below", "double-breve", "overline"),
+)
+def test_getlength_combine(mode: str, direction: str, text: str) -> None:
+    if text == "i\u0305i" and direction == "ttb":
+        pytest.skip("fails with this font")
+
+    ttf = ImageFont.truetype("Tests/fonts/NotoSans-Regular.ttf", 48)
+
+    if direction == "ttb" and not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    target = ttf.getlength("ii", mode, direction)
+    actual = ttf.getlength(text, mode, direction)
+
+    assert actual == target
+
+
+@pytest.mark.parametrize("anchor", ("lt", "mm", "rb", "sm"))
+def test_anchor_ttb(anchor: str) -> None:
+    text = "f"
+    path = f"Tests/images/test_anchor_ttb_{text}_{anchor}.png"
+    f = ImageFont.truetype("Tests/fonts/NotoSans-Regular.ttf", 120)
+
+    im = Image.new("RGB", (200, 400), "white")
+    d = ImageDraw.Draw(im)
+    d.line(((0, 200), (200, 200)), "gray")
+    d.line(((100, 0), (100, 400)), "gray")
+    if not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    d.text((100, 200), text, fill="black", anchor=anchor, direction="ttb", font=f)
+
+    assert_image_similar_tofile(im, path, 1)  # fails at 5
+
+
+combine_tests = (
+    # extends above (e.g. issue #4553)
+    ("caron", "a\u030c\u030c\u030c\u030c\u030cb", None, None, 0.08),
+    ("caron_la", "a\u030c\u030c\u030c\u030c\u030cb", "la", None, 0.08),
+    ("caron_lt", "a\u030c\u030c\u030c\u030c\u030cb", "lt", None, 0.08),
+    ("caron_ls", "a\u030c\u030c\u030c\u030c\u030cb", "ls", None, 0.08),
+    ("caron_ttb", "ca" + ("\u030c" * 15) + "b", None, "ttb", 0.3),
+    ("caron_ttb_lt", "ca" + ("\u030c" * 15) + "b", "lt", "ttb", 0.3),
+    # extends below
+    ("caron_below", "a\u032c\u032c\u032c\u032c\u032cb", None, None, 0.02),
+    ("caron_below_ld", "a\u032c\u032c\u032c\u032c\u032cb", "ld", None, 0.02),
+    ("caron_below_lb", "a\u032c\u032c\u032c\u032c\u032cb", "lb", None, 0.02),
+    ("caron_below_ls", "a\u032c\u032c\u032c\u032c\u032cb", "ls", None, 0.02),
+    ("caron_below_ttb", "a" + ("\u032c" * 15) + "b", None, "ttb", 0.03),
+    ("caron_below_ttb_lb", "a" + ("\u032c" * 15) + "b", "lb", "ttb", 0.03),
+    # extends to the right (e.g. issue #3745)
+    ("double_breve_below", "a\u035ci", None, None, 0.02),
+    ("double_breve_below_ma", "a\u035ci", "ma", None, 0.02),
+    ("double_breve_below_ra", "a\u035ci", "ra", None, 0.02),
+    ("double_breve_below_ttb", "a\u035cb", None, "ttb", 0.02),
+    ("double_breve_below_ttb_rt", "a\u035cb", "rt", "ttb", 0.02),
+    ("double_breve_below_ttb_mt", "a\u035cb", "mt", "ttb", 0.02),
+    ("double_breve_below_ttb_st", "a\u035cb", "st", "ttb", 0.02),
+    # extends to the left (fail=0.064)
+    ("overline", "i\u0305", None, None, 0.02),
+    ("overline_la", "i\u0305", "la", None, 0.02),
+    ("overline_ra", "i\u0305", "ra", None, 0.02),
+    ("overline_ttb", "i\u0305", None, "ttb", 0.02),
+    ("overline_ttb_rt", "i\u0305", "rt", "ttb", 0.02),
+    ("overline_ttb_mt", "i\u0305", "mt", "ttb", 0.02),
+    ("overline_ttb_st", "i\u0305", "st", "ttb", 0.02),
+)
+
+
+# this tests various combining characters for anchor alignment and clipping
+@pytest.mark.parametrize(
+    "name, text, anchor, direction, epsilon",
+    combine_tests,
+    ids=[r[0] for r in combine_tests],
+)
+def test_combine(
+    name: str, text: str, direction: str | None, anchor: str | None, epsilon: float
+) -> None:
+    path = f"Tests/images/test_combine_{name}.png"
+    f = ImageFont.truetype("Tests/fonts/NotoSans-Regular.ttf", 48)
+
+    im = Image.new("RGB", (400, 400), "white")
+    d = ImageDraw.Draw(im)
+    d.line(((0, 200), (400, 200)), "gray")
+    d.line(((200, 0), (200, 400)), "gray")
+    if direction == "ttb" and not has_feature_version("raqm", "0.7"):
+        pytest.skip("libraqm 0.7 or greater not available")
+    d.text((200, 200), text, fill="black", anchor=anchor, direction=direction, font=f)
+
+    assert_image_similar_tofile(im, path, epsilon)
+
+
+@pytest.mark.parametrize(
+    "anchor, align",
+    (
+        ("lm", "left"),  # pass with getsize
+        ("lm", "center"),  # fail at 2.12
+        ("lm", "right"),  # fail at 2.57
+        ("mm", "left"),  # fail at 2.12
+        ("mm", "center"),  # pass with getsize
+        ("mm", "right"),  # fail at 2.12
+        ("rm", "left"),  # fail at 2.57
+        ("rm", "center"),  # fail at 2.12
+        ("rm", "right"),  # pass with getsize
+    ),
+)
+def test_combine_multiline(anchor: str, align: str) -> None:
+    # test that multiline text uses getlength, not getsize or getbbox
+
+    path = f"Tests/images/test_combine_multiline_{anchor}_{align}.png"
+    f = ImageFont.truetype("Tests/fonts/NotoSans-Regular.ttf", 48)
+    text = "i\u0305\u035c\ntext"  # i with overline and double breve, and a word
+
+    im = Image.new("RGB", (400, 400), "white")
+    d = ImageDraw.Draw(im)
+    d.line(((0, 200), (400, 200)), "gray")
+    d.line(((200, 0), (200, 400)), "gray")
+    bbox = d.multiline_textbbox((200, 200), text, anchor=anchor, font=f, align=align)
+    d.rectangle(bbox, outline="red")
+    d.multiline_text((200, 200), text, "black", anchor=anchor, font=f, align=align)
+
+    assert_image_similar_tofile(im, path, 0.015)
+
+
+def test_combine_multiline_ttb() -> None:
+    path = "Tests/images/test_combine_multiline_ttb.png"
+    f = ImageFont.truetype("Tests/fonts/NotoSans-Regular.ttf", 48)
+    text = "te\nxt"
+
+    im = Image.new("RGB", (400, 400), "white")
+    d = ImageDraw.Draw(im)
+    d.line(((0, 200), (400, 200)), "gray")
+    d.line(((200, 0), (200, 400)), "gray")
+    bbox = d.multiline_textbbox((200, 200), text, f, direction="ttb")
+    d.rectangle(bbox, outline="red")
+    d.multiline_text((200, 200), text, "black", f, direction="ttb")
+
+    assert_image_equal_tofile(im, path)
+
+
+def test_anchor_invalid_ttb() -> None:
+    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+    im = Image.new("RGB", (100, 100), "white")
+    d = ImageDraw.Draw(im)
+    d.font = font
+
+    for anchor in ["", "l", "a", "lax", "xa", "la", "ls", "ld", "lx"]:
+        with pytest.raises(ValueError):
+            font.getmask2("hello", anchor=anchor, direction="ttb")
+        with pytest.raises(ValueError):
+            font.getbbox("hello", anchor=anchor, direction="ttb")
+        with pytest.raises(ValueError):
+            d.text((0, 0), "hello", anchor=anchor, direction="ttb")
+        with pytest.raises(ValueError):
+            d.textbbox((0, 0), "hello", anchor=anchor, direction="ttb")
+        with pytest.raises(ValueError):
+            d.multiline_text((0, 0), "foo\nbar", anchor=anchor, direction="ttb")
+        with pytest.raises(ValueError):
+            d.multiline_textbbox((0, 0), "foo\nbar", anchor=anchor, direction="ttb")

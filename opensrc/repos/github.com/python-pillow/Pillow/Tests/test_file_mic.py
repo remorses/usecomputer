@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import pytest
+
+from PIL import Image, ImagePalette
+
+from .helper import assert_image_similar, hopper, skip_unless_feature
+
+MicImagePlugin = pytest.importorskip(
+    "PIL.MicImagePlugin", reason="olefile not installed"
+)
+pytestmark = skip_unless_feature("libtiff")
+TEST_FILE = "Tests/images/hopper.mic"
+
+
+def test_sanity() -> None:
+    with Image.open(TEST_FILE) as im:
+        im.load()
+        assert im.mode == "RGBA"
+        assert im.size == (128, 128)
+        assert im.format == "MIC"
+
+        # Adjust for the gamma of 2.2 encoded into the file
+        lut = ImagePalette.make_gamma_lut(1 / 2.2)
+        im1 = Image.merge("RGBA", [chan.point(lut) for chan in im.split()])
+
+        im2 = hopper("RGBA")
+        assert_image_similar(im1, im2, 10)
+
+
+def test_n_frames() -> None:
+    with Image.open(TEST_FILE) as im:
+        assert isinstance(im, MicImagePlugin.MicImageFile)
+        assert im.n_frames == 1
+
+
+def test_is_animated() -> None:
+    with Image.open(TEST_FILE) as im:
+        assert isinstance(im, MicImagePlugin.MicImageFile)
+        assert not im.is_animated
+
+
+def test_tell() -> None:
+    with Image.open(TEST_FILE) as im:
+        assert im.tell() == 0
+
+
+def test_seek() -> None:
+    with Image.open(TEST_FILE) as im:
+        im.seek(0)
+        assert im.tell() == 0
+
+        with pytest.raises(EOFError):
+            im.seek(99)
+        assert im.tell() == 0
+
+
+def test_close() -> None:
+    with Image.open(TEST_FILE) as im:
+        assert isinstance(im, MicImagePlugin.MicImageFile)
+    assert im.ole.fp.closed
+
+    im = Image.open(TEST_FILE)
+    assert isinstance(im, MicImagePlugin.MicImageFile)
+    im.close()
+    assert im.ole.fp.closed
+
+
+def test_invalid_file() -> None:
+    # Test an invalid OLE file
+    invalid_file = "Tests/images/flower.jpg"
+    with pytest.raises(SyntaxError):
+        MicImagePlugin.MicImageFile(invalid_file)
+
+    # Test a valid OLE file, but not a MIC file
+    ole_file = "Tests/images/test-ole-file.doc"
+    with pytest.raises(SyntaxError):
+        MicImagePlugin.MicImageFile(ole_file)

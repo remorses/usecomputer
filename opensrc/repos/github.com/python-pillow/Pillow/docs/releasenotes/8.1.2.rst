@@ -1,0 +1,15 @@
+8.1.2
+-----
+
+Security
+========
+
+:cve:`2021-27921`, :cve:`2021-27922`, :cve:`2021-27923`: Fix DOS attacks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+There is an exhaustion of memory DOS attack in BLP, ICNS, ICO images
+where Pillow did not properly check the reported size of the contained image.
+These images could cause arbitrarily large memory allocations.
+
+These issues were reported by Jiayi Lin, Luke Shaffer, Xinran Xie and
+Akshay Ajayan of `Arizona State University <https://www.asu.edu/>`_.
