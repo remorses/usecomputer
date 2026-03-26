@@ -35,7 +35,6 @@
     "zig",
     "build.zig",
     "build.zig.zon",
-    "bin.sh",
     "README.md",
     "CHANGELOG.md"
   ],
