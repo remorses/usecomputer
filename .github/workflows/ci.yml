@@ -5,10 +5,11 @@
 # Zig cross-compiles x86_64-macos from ARM fine since both
 # use the same macOS SDK. macos-13 (Intel) runners are retired.
 #
-# linux-x64 is built natively on ubuntu-latest because linkSystemLibrary
-# needs X11/Xext/Xtst/png headers from the system.
-# linux-arm64 is cross-compiled from the same x64 runner — Zig handles
-# the aarch64-linux-gnu target using its bundled libc headers.
+# linux-x64 is built natively on ubuntu-latest (x64).
+# linux-arm64 is built natively on ubuntu-24.04-arm (ARM64).
+# Both need X11/Xext/Xtst/png headers from the system — Zig's
+# linkSystemLibrary requires target-arch headers, so cross-compiling
+# from x64 doesn't work (only glibc is bundled, not X11/png).
 #
 # win32-x64 is built on windows-latest.
 
@@ -94,14 +95,41 @@ jobs:
       - name: Build native linux-x64
         run: pnpm tsx scripts/build.ts linux-x64
 
-      - name: Build native linux-arm64 (cross-compile)
-        run: pnpm tsx scripts/build.ts linux-arm64
-
       - name: Upload linux-x64
         uses: actions/upload-artifact@v4
         with:
           name: native-linux-x64
           path: dist/linux-x64/
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install X11 and PNG dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxtst-dev libpng-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build native linux-arm64
+        run: pnpm tsx scripts/build.ts linux-arm64
 
       - name: Upload linux-arm64
         uses: actions/upload-artifact@v4
@@ -147,7 +175,7 @@ jobs:
           path: dist/win32-x64/
 
   publish:
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-macos, build-linux, build-linux-arm64, build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
