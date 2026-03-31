@@ -242,7 +242,7 @@ export fn uc_screenshot(
     // Serialize ScreenshotOutput to JSON
     var buf: [4096]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
-    std.json.stringify(data, .{}, stream.writer()) catch {
+    stream.writer().print("{f}", .{std.json.fmt(data, .{})}) catch {
         setError("failed to serialize screenshot output");
         return null;
     };
