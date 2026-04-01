@@ -4,6 +4,39 @@
 
 All notable changes to `usecomputer` will be documented in this file.
 
+## 0.1.9
+
+1. **C API shared library** — `libusecomputer_c` is now built for all
+   platforms and included in GitHub releases. Use it from any language
+   with FFI (Julia, Python ctypes, Ruby FFI, etc.):
+
+   ```c
+   #include "usecomputer.h"
+
+   double x, y;
+   uc_mouse_position(&x, &y);
+
+   char* displays = uc_display_list(); // caller uc_free()s
+   char* result = uc_screenshot(NULL, -1, -1);
+   if (!result) fprintf(stderr, "%s\n", uc_last_error());
+   else { puts(result); uc_free(result); }
+   ```
+
+   Download from the GitHub release:
+   - `usecomputer-v0.1.9-darwin-arm64.tar.gz`
+   - `usecomputer-v0.1.9-darwin-x64.tar.gz`
+   - `usecomputer-v0.1.9-linux-arm64.tar.gz`
+   - `usecomputer-v0.1.9-linux-x64.tar.gz`
+   - `usecomputer-v0.1.9-win32-x64.zip`
+   - `usecomputer.h` (platform-independent header)
+
+   Each archive contains the standalone CLI, N-API `.node`, C shared
+   library, and header.
+
+2. **All releases now include the standalone executable** — each platform
+   archive in GitHub releases contains `usecomputer` (or `usecomputer.exe`
+   on Windows), a self-contained binary with no Node.js dependency.
+
 ## 0.1.8
 
 1. **AArch64 Linux support** — prebuilt binaries for `linux-arm64` are now
