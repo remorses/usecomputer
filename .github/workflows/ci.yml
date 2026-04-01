@@ -297,12 +297,17 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Upload binaries to GitHub Release
-        if: steps.version-check.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version-check.outputs.package_version }}"
           TAG="v${VERSION}"
+
+          # Check if this release tag exists, skip upload if not
+          if ! gh release view "$TAG" &>/dev/null; then
+            echo "No release found for ${TAG}, skipping upload"
+            exit 0
+          fi
 
           # Create platform tarballs (exe + c-api lib + header)
           for platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
