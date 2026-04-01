@@ -5,6 +5,9 @@
  *
  * Functions returning char* allocate memory that the caller must
  * free with uc_free(). They return NULL on error.
+ *
+ * Pointer parameters marked "must not be NULL" will return -1 with
+ * an error message if NULL is passed.
  */
 
 #ifndef USECOMPUTER_H
@@ -20,8 +23,9 @@ extern "C" {
  * Valid until the next uc_* call on this thread. Returns NULL if no error. */
 const char* uc_last_error(void);
 
-/* Free a string returned by uc_screenshot, uc_display_list, or uc_window_list. */
-void uc_free(char* ptr);
+/* Free a string returned by uc_screenshot, uc_display_list, or uc_window_list.
+ * Accepts NULL (no-op). */
+void uc_free(void* ptr);
 
 /* ── Screenshot ── */
 
@@ -47,21 +51,23 @@ int uc_hover(double x, double y);
 int uc_drag(double from_x, double from_y, double to_x, double to_y,
             double cp_x, double cp_y, int has_cp, int button);
 
-/* Write current mouse position into *out_x and *out_y. */
+/* Write current mouse position into *out_x and *out_y.
+ * out_x and out_y must not be NULL. */
 int uc_mouse_position(double* out_x, double* out_y);
 
 /* ── Keyboard ── */
 
-/* Type text. delay_ms: per-character delay in ms, or -1 for default. */
+/* Type text. text must not be NULL.
+ * delay_ms: per-character delay in ms, or -1 for default. */
 int uc_type_text(const char* text, int delay_ms);
 
-/* Press a key or chord (e.g. "enter", "cmd+s"). count: repeat count.
- * delay_ms: delay between repeats in ms, or -1 for default. */
+/* Press a key or chord (e.g. "enter", "cmd+s"). key must not be NULL.
+ * count: repeat count. delay_ms: delay between repeats in ms, or -1 for default. */
 int uc_press(const char* key, int count, int delay_ms);
 
 /* ── Scroll ── */
 
-/* direction: "up", "down", "left", "right".
+/* direction must not be NULL: "up", "down", "left", "right".
  * If has_at is non-zero, scroll at position (at_x, at_y). */
 int uc_scroll(const char* direction, int amount,
               double at_x, double at_y, int has_at);

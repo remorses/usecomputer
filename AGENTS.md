@@ -222,11 +222,31 @@ To release:
 1. Bump the version in `package.json`
 2. Update `CHANGELOG.md` with the new version and changes
 3. Commit and push to `main`
-4. GitHub Actions CI (`ci.yml`) builds macOS + Linux binaries and publishes to npm
+4. GitHub Actions CI (`ci.yml`) builds all artifacts and publishes
+
+CI builds three artifact types per platform (macOS arm64/x64, Linux
+arm64/x64, Windows x64):
+
+- **N-API library** (`usecomputer.node`) — for Node.js consumption via npm
+- **Standalone executable** (`usecomputer`) — no Node.js required
+- **C API shared library** (`libusecomputer_c.dylib`/`.so`/`.dll`) — for
+  FFI from any language (Julia, Python, Ruby, etc.)
+
+On version bump the publish job:
+
+1. Publishes the npm package (with `.node` binaries for all platforms)
+2. Uploads platform archives to the GitHub release at tag `v$VERSION`:
+   - `usecomputer-v{VERSION}-{platform}.tar.gz` (unix) / `.zip` (windows)
+   - `usecomputer.h` (platform-independent C header)
+
+Each archive contains the standalone exe, N-API `.node`, C API shared
+library, and the header. The GitHub release must already exist (created
+manually or by a prior workflow) — CI only uploads assets, it does not
+create the release.
 
 The CI publish job checks whether the version is already on npm and skips if
 so. This means you can push multiple commits to `main` and only the version
-bump commit triggers an actual publish.
+bump commit triggers an actual publish and release upload.
 
 **After pushing a version bump, ALWAYS watch CI to confirm it publishes
 successfully:**

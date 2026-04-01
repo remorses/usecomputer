@@ -60,8 +60,8 @@ fn allocCString(data: []const u8) ?[*]u8 {
     return buf.ptr + header_size;
 }
 
-export fn uc_free(ptr: ?[*]u8) void {
-    const p = ptr orelse return;
+export fn uc_free(ptr: ?*anyopaque) void {
+    const p: [*]u8 = @ptrCast(ptr orelse return);
     const header_size = @sizeOf(usize);
     const base = p - header_size;
     const len_ptr: *const usize = @ptrCast(@alignCast(base));
@@ -82,7 +82,7 @@ fn buttonStr(button: c_int) ?[]const u8 {
     };
 }
 
-/// Set error from a CommandResult and return -1.
+/// Set error from a failed result and return -1.
 fn handleCommandError(result: anytype) c_int {
     if (result.@"error") |err| {
         setError(err.message);
@@ -90,6 +90,15 @@ fn handleCommandError(result: anytype) c_int {
         setError("unknown error");
     }
     return -1;
+}
+
+/// Set error from a failed result (for functions returning pointers).
+fn setResultError(result: anytype) void {
+    if (result.@"error") |err| {
+        setError(err.message);
+    } else {
+        setError("unknown error");
+    }
 }
 
 /// Convert a C string (nullable) to a Zig slice. Returns null for NULL input.
@@ -141,13 +150,21 @@ export fn uc_mouse_up(button: c_int) c_int {
     return handleCommandError(result);
 }
 
-export fn uc_mouse_position(out_x: *f64, out_y: *f64) c_int {
+export fn uc_mouse_position(out_x: ?*f64, out_y: ?*f64) c_int {
     clearError();
+    const ox = out_x orelse {
+        setError("out_x must not be NULL");
+        return -1;
+    };
+    const oy = out_y orelse {
+        setError("out_y must not be NULL");
+        return -1;
+    };
     const result = lib.mousePosition();
     if (result.ok) {
         if (result.data) |point| {
-            out_x.* = point.x;
-            out_y.* = point.y;
+            ox.* = point.x;
+            oy.* = point.y;
             return 0;
         }
     }
@@ -176,9 +193,13 @@ export fn uc_drag(
     return handleCommandError(result);
 }
 
-export fn uc_type_text(text: [*:0]const u8, delay_ms: c_int) c_int {
+export fn uc_type_text(text: ?[*:0]const u8, delay_ms: c_int) c_int {
     clearError();
-    const text_slice = std.mem.sliceTo(text, 0);
+    const text_ptr = text orelse {
+        setError("text must not be NULL");
+        return -1;
+    };
+    const text_slice = std.mem.sliceTo(text_ptr, 0);
     const result = lib.typeText(.{
         .text = text_slice,
         .delayMs = if (delay_ms >= 0) @as(f64, @floatFromInt(delay_ms)) else null,
@@ -187,9 +208,13 @@ export fn uc_type_text(text: [*:0]const u8, delay_ms: c_int) c_int {
     return handleCommandError(result);
 }
 
-export fn uc_press(key: [*:0]const u8, count: c_int, delay_ms: c_int) c_int {
+export fn uc_press(key: ?[*:0]const u8, count: c_int, delay_ms: c_int) c_int {
     clearError();
-    const key_slice = std.mem.sliceTo(key, 0);
+    const key_ptr = key orelse {
+        setError("key must not be NULL");
+        return -1;
+    };
+    const key_slice = std.mem.sliceTo(key_ptr, 0);
     const result = lib.press(.{
         .key = key_slice,
         .count = if (count > 0) @as(f64, @floatFromInt(count)) else null,
@@ -200,14 +225,18 @@ export fn uc_press(key: [*:0]const u8, count: c_int, delay_ms: c_int) c_int {
 }
 
 export fn uc_scroll(
-    direction: [*:0]const u8,
+    direction: ?[*:0]const u8,
     amount: c_int,
     at_x: f64,
     at_y: f64,
     has_at: c_int,
 ) c_int {
     clearError();
-    const dir_slice = std.mem.sliceTo(direction, 0);
+    const dir_ptr = direction orelse {
+        setError("direction must not be NULL");
+        return -1;
+    };
+    const dir_slice = std.mem.sliceTo(dir_ptr, 0);
     const at: ?lib.Point = if (has_at != 0) .{ .x = at_x, .y = at_y } else null;
     const result = lib.scroll(.{
         .direction = dir_slice,
@@ -230,9 +259,7 @@ export fn uc_screenshot(
         .window = if (window_id >= 0) @as(f64, @floatFromInt(window_id)) else null,
     });
     if (!result.ok) {
-        if (result.@"error") |err| {
-            setError(err.message);
-        }
+        setResultError(result);
         return null;
     }
     const data = result.data orelse {
@@ -240,7 +267,7 @@ export fn uc_screenshot(
         return null;
     };
     // Serialize ScreenshotOutput to JSON
-    var buf: [4096]u8 = undefined;
+    var buf: [8192]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
     stream.writer().print("{f}", .{std.json.fmt(data, .{})}) catch {
         setError("failed to serialize screenshot output");
@@ -258,9 +285,7 @@ export fn uc_display_list() [*c]u8 {
     clearError();
     const result = lib.displayList();
     if (!result.ok) {
-        if (result.@"error") |err| {
-            setError(err.message);
-        }
+        setResultError(result);
         return null;
     }
     const data = result.data orelse {
@@ -280,9 +305,7 @@ export fn uc_window_list() [*c]u8 {
     clearError();
     const result = lib.windowList();
     if (!result.ok) {
-        if (result.@"error") |err| {
-            setError(err.message);
-        }
+        setResultError(result);
         return null;
     }
     const data = result.data orelse {

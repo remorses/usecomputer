@@ -12,6 +12,10 @@
 # from x64 doesn't work (only glibc is bundled, not X11/png).
 #
 # win32-x64 is built on windows-latest.
+#
+# Each platform also builds the C API shared library (libusecomputer_c).
+# On publish, all executables and libraries are uploaded to the
+# matching GitHub release (v$VERSION).
 
 name: usecomputer CI
 
@@ -52,6 +56,24 @@ jobs:
 
       - name: Build native darwin-x64
         run: pnpm tsx scripts/build.ts darwin-x64
+
+      - name: Build C API darwin-arm64
+        run: |
+          if [ -d /Library/Developer/CommandLineTools ]; then
+            export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+          fi
+          zig build c-api -Doptimize=ReleaseFast
+          cp zig-out/lib/libusecomputer_c.dylib dist/darwin-arm64/
+          cp zig-out/include/usecomputer.h dist/darwin-arm64/
+
+      - name: Build C API darwin-x64
+        run: |
+          if [ -d /Library/Developer/CommandLineTools ]; then
+            export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+          fi
+          zig build c-api -Doptimize=ReleaseFast -Dtarget=x86_64-macos
+          cp zig-out/lib/libusecomputer_c.dylib dist/darwin-x64/
+          cp zig-out/include/usecomputer.h dist/darwin-x64/
 
       - name: Upload darwin-arm64
         uses: actions/upload-artifact@v4
@@ -95,6 +117,12 @@ jobs:
       - name: Build native linux-x64
         run: pnpm tsx scripts/build.ts linux-x64
 
+      - name: Build C API linux-x64
+        run: |
+          zig build c-api -Doptimize=ReleaseFast
+          cp zig-out/lib/libusecomputer_c.so dist/linux-x64/
+          cp zig-out/include/usecomputer.h dist/linux-x64/
+
       - name: Upload linux-x64
         uses: actions/upload-artifact@v4
         with:
@@ -131,6 +159,12 @@ jobs:
       - name: Build native linux-arm64
         run: pnpm tsx scripts/build.ts linux-arm64
 
+      - name: Build C API linux-arm64
+        run: |
+          zig build c-api -Doptimize=ReleaseFast
+          cp zig-out/lib/libusecomputer_c.so dist/linux-arm64/
+          cp zig-out/include/usecomputer.h dist/linux-arm64/
+
       - name: Upload linux-arm64
         uses: actions/upload-artifact@v4
         with:
@@ -161,6 +195,14 @@ jobs:
 
       - name: Build native win32-x64
         run: pnpm tsx scripts/build.ts win32-x64
+
+      - name: Build C API win32-x64
+        shell: bash
+        run: |
+          zig build c-api -Doptimize=ReleaseFast
+          cp zig-out/lib/usecomputer_c.dll dist/win32-x64/
+          cp zig-out/lib/usecomputer_c.lib dist/win32-x64/ 2>/dev/null || true
+          cp zig-out/include/usecomputer.h dist/win32-x64/
 
       - name: Build TypeScript
         run: pnpm build
@@ -250,3 +292,32 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Upload binaries to GitHub Release
+        if: steps.version-check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version-check.outputs.package_version }}"
+          TAG="v${VERSION}"
+
+          # Create platform tarballs (exe + c-api lib + header)
+          for platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            tar -czf "usecomputer-${TAG}-${platform}.tar.gz" -C "dist/${platform}" .
+          done
+
+          # Create zip for Windows
+          (cd dist/win32-x64 && zip -r "../../usecomputer-${TAG}-win32-x64.zip" .)
+
+          # Upload header separately (platform-independent)
+          cp dist/darwin-arm64/usecomputer.h usecomputer.h
+
+          echo "Uploading release assets to ${TAG}..."
+          gh release upload "$TAG" \
+            "usecomputer-${TAG}-darwin-arm64.tar.gz" \
+            "usecomputer-${TAG}-darwin-x64.tar.gz" \
+            "usecomputer-${TAG}-linux-x64.tar.gz" \
+            "usecomputer-${TAG}-linux-arm64.tar.gz" \
+            "usecomputer-${TAG}-win32-x64.zip" \
+            usecomputer.h \
+            --clobber

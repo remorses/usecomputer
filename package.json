@@ -46,6 +46,8 @@
     "vm": "tsx scripts/vm.ts",
     "test": "vitest --run",
     "typecheck": "tsc --noEmit",
+    "build:c-api": "DEVELOPER_DIR=${DEVELOPER_DIR:-/Library/Developer/CommandLineTools} zig build c-api -Doptimize=ReleaseFast",
+    "example:c": "pnpm build:c-api && cc -o zig-out/bin/screenshot examples/screenshot.c -Izig-out/include -Lzig-out/lib -lusecomputer_c -Wl,-rpath,@loader_path/../lib && zig-out/bin/screenshot",
     "prepublishOnly": "[ -n \"$CI\" ] || (pnpm build && pnpm build:native:macos)"
   },
   "keywords": [
