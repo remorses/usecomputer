@@ -200,7 +200,8 @@ jobs:
         shell: bash
         run: |
           zig build c-api -Doptimize=ReleaseFast
-          cp zig-out/lib/usecomputer_c.dll dist/win32-x64/
+          # On Windows zig puts DLLs in zig-out/bin/, import libs in zig-out/lib/
+          cp zig-out/bin/usecomputer_c.dll dist/win32-x64/
           cp zig-out/lib/usecomputer_c.lib dist/win32-x64/ 2>/dev/null || true
           cp zig-out/include/usecomputer.h dist/win32-x64/
 
