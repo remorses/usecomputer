@@ -221,6 +221,8 @@ jobs:
     needs: [build-macos, build-linux, build-linux-arm64, build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write  # needed for gh release upload
 
     steps:
       - uses: actions/checkout@v4
