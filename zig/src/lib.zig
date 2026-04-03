@@ -212,6 +212,7 @@ const ClickInput = struct {
     point: Point,
     button: ?[]const u8 = null,
     count: ?f64 = null,
+    modifiers: []const []const u8 = &[_][]const u8{},
 };
 
 const MouseMoveInput = Point;
@@ -1280,6 +1281,9 @@ pub fn click(input: ClickInput) CommandResult {
     const button_kind = resolveMouseButton(input.button orelse "left") catch {
         return failCommand("click", "INVALID_INPUT", "invalid click button");
     };
+    const parsed_modifiers = parseClickModifiers(input.modifiers) catch {
+        return failCommand("click", "INVALID_INPUT", "invalid click modifier");
+    };
 
     switch (builtin.target.os.tag) {
         .macos => {
@@ -1287,11 +1291,17 @@ pub fn click(input: ClickInput) CommandResult {
                 .x = input.point.x,
                 .y = input.point.y,
             };
+            const flags = macosEventFlagsForModifiers(parsed_modifiers);
+
+            postModifierKeysMacos(parsed_modifiers, true, flags) catch {
+                return failCommand("click", "EVENT_POST_FAILED", "failed to press click modifier");
+            };
+            defer postModifierKeysMacos(parsed_modifiers, false, flags) catch {};
 
             var index: u32 = 0;
             while (index < click_count) : (index += 1) {
                 const click_state = @as(i64, @intCast(index + 1));
-                postClickPair(point, button_kind, click_state) catch {
+                postClickPair(point, button_kind, click_state, flags) catch {
                     return failCommand("click", "EVENT_POST_FAILED", "failed to post click event");
                 };
 
@@ -1306,6 +1316,9 @@ pub fn click(input: ClickInput) CommandResult {
             moveCursorToPointWindows(input.point) catch {
                 return failCommand("click", "EVENT_POST_FAILED", "failed to move mouse cursor");
             };
+
+            postModifierKeysWindows(parsed_modifiers, true);
+            defer postModifierKeysWindows(parsed_modifiers, false);
 
             var index: u32 = 0;
             while (index < click_count) : (index += 1) {
@@ -1332,6 +1345,11 @@ pub fn click(input: ClickInput) CommandResult {
             moveCursorToPointX11(.{ .x = input.point.x, .y = input.point.y }, display) catch {
                 return failCommand("click", "EVENT_POST_FAILED", "failed to move mouse cursor");
             };
+
+            postModifierKeysX11(display, parsed_modifiers, true) catch {
+                return failCommand("click", "EVENT_POST_FAILED", "failed to press click modifier");
+            };
+            defer postModifierKeysX11(display, parsed_modifiers, false) catch {};
 
             var index: u32 = 0;
             while (index < click_count) : (index += 1) {
@@ -1413,7 +1431,7 @@ fn handleMouseButtonInput(args: struct {
                 return failCommand("mouse-button", "CURSOR_READ_FAILED", "failed to read cursor position");
             };
 
-            postMouseButtonEvent(point, button_kind, args.is_down, 1) catch {
+            postMouseButtonEvent(point, button_kind, args.is_down, 1, 0) catch {
                 return failCommand("mouse-button", "EVENT_POST_FAILED", "failed to post mouse button event");
             };
 
@@ -1555,7 +1573,7 @@ pub fn drag(input: DragInput) CommandResult {
                 return failCommand("drag", "EVENT_POST_FAILED", "failed to move cursor to drag origin");
             };
 
-            postMouseButtonEvent(from, button_kind, true, 1) catch {
+            postMouseButtonEvent(from, button_kind, true, 1, 0) catch {
                 return failCommand("drag", "EVENT_POST_FAILED", "failed to post drag mouse-down");
             };
 
@@ -1575,7 +1593,7 @@ pub fn drag(input: DragInput) CommandResult {
             }
 
             const end = evalDragPoint(input.from, input.to, input.cp, 1.0);
-            postMouseButtonEvent(.{ .x = end.x, .y = end.y }, button_kind, false, 1) catch {
+            postMouseButtonEvent(.{ .x = end.x, .y = end.y }, button_kind, false, 1, 0) catch {
                 return failCommand("drag", "EVENT_POST_FAILED", "failed to post drag mouse-up");
             };
 
@@ -1915,14 +1933,42 @@ pub fn scroll(input: ScrollInput) CommandResult {
     return okCommand();
 }
 
-const ParsedPress = struct {
-    key: []const u8,
+const ParsedModifiers = struct {
     cmd: bool = false,
     alt: bool = false,
     ctrl: bool = false,
     shift: bool = false,
     fn_key: bool = false,
 };
+
+const ParsedPress = struct {
+    key: []const u8,
+    modifiers: ParsedModifiers = .{},
+};
+
+fn parseModifierToken(token: []const u8, modifiers: *ParsedModifiers) bool {
+    if (std.ascii.eqlIgnoreCase(token, "cmd") or std.ascii.eqlIgnoreCase(token, "command") or std.ascii.eqlIgnoreCase(token, "meta")) {
+        modifiers.cmd = true;
+        return true;
+    }
+    if (std.ascii.eqlIgnoreCase(token, "alt") or std.ascii.eqlIgnoreCase(token, "option")) {
+        modifiers.alt = true;
+        return true;
+    }
+    if (std.ascii.eqlIgnoreCase(token, "ctrl") or std.ascii.eqlIgnoreCase(token, "control")) {
+        modifiers.ctrl = true;
+        return true;
+    }
+    if (std.ascii.eqlIgnoreCase(token, "shift")) {
+        modifiers.shift = true;
+        return true;
+    }
+    if (std.ascii.eqlIgnoreCase(token, "fn")) {
+        modifiers.fn_key = true;
+        return true;
+    }
+    return false;
+}
 
 fn parsePressKey(key_input: []const u8) !ParsedPress {
     var parsed: ParsedPress = .{ .key = "" };
@@ -1934,24 +1980,7 @@ fn parsePressKey(key_input: []const u8) !ParsedPress {
             continue;
         }
 
-        if (std.ascii.eqlIgnoreCase(trimmed, "cmd") or std.ascii.eqlIgnoreCase(trimmed, "command") or std.ascii.eqlIgnoreCase(trimmed, "meta")) {
-            parsed.cmd = true;
-            continue;
-        }
-        if (std.ascii.eqlIgnoreCase(trimmed, "alt") or std.ascii.eqlIgnoreCase(trimmed, "option")) {
-            parsed.alt = true;
-            continue;
-        }
-        if (std.ascii.eqlIgnoreCase(trimmed, "ctrl") or std.ascii.eqlIgnoreCase(trimmed, "control")) {
-            parsed.ctrl = true;
-            continue;
-        }
-        if (std.ascii.eqlIgnoreCase(trimmed, "shift")) {
-            parsed.shift = true;
-            continue;
-        }
-        if (std.ascii.eqlIgnoreCase(trimmed, "fn")) {
-            parsed.fn_key = true;
+        if (parseModifierToken(trimmed, &parsed.modifiers)) {
             continue;
         }
 
@@ -1966,6 +1995,63 @@ fn parsePressKey(key_input: []const u8) !ParsedPress {
         return error.MissingMainKey;
     }
     return parsed;
+}
+
+fn parseClickModifiers(raw_modifiers: []const []const u8) !ParsedModifiers {
+    var parsed: ParsedModifiers = .{};
+
+    for (raw_modifiers) |raw_modifier| {
+        var parts = std.mem.tokenizeAny(u8, raw_modifier, "+,");
+        var saw_modifier = false;
+        while (parts.next()) |part| {
+            const trimmed = std.mem.trim(u8, part, " \t\r\n");
+            if (trimmed.len == 0) {
+                continue;
+            }
+            if (!parseModifierToken(trimmed, &parsed)) {
+                return error.UnknownModifier;
+            }
+            saw_modifier = true;
+        }
+        if (!saw_modifier and raw_modifier.len > 0) {
+            return error.UnknownModifier;
+        }
+    }
+
+    return parsed;
+}
+
+fn macosEventFlagsForModifiers(modifiers: ParsedModifiers) c_macos.CGEventFlags {
+    var flags: c_macos.CGEventFlags = 0;
+    if (modifiers.cmd) flags |= c_macos.kCGEventFlagMaskCommand;
+    if (modifiers.alt) flags |= c_macos.kCGEventFlagMaskAlternate;
+    if (modifiers.ctrl) flags |= c_macos.kCGEventFlagMaskControl;
+    if (modifiers.shift) flags |= c_macos.kCGEventFlagMaskShift;
+    if (modifiers.fn_key) flags |= c_macos.kCGEventFlagMaskSecondaryFn;
+    return flags;
+}
+
+test "parsePressKey recognizes modifier aliases" {
+    const parsed = try parsePressKey("command+option+shift+k");
+
+    try std.testing.expectEqualStrings("k", parsed.key);
+    try std.testing.expect(parsed.modifiers.cmd);
+    try std.testing.expect(parsed.modifiers.alt);
+    try std.testing.expect(parsed.modifiers.shift);
+    try std.testing.expect(!parsed.modifiers.ctrl);
+}
+
+test "parseClickModifiers accepts repeated and combined modifiers" {
+    const parsed = try parseClickModifiers(&.{ "cmd", "option+shift" });
+
+    try std.testing.expect(parsed.cmd);
+    try std.testing.expect(parsed.alt);
+    try std.testing.expect(parsed.shift);
+    try std.testing.expect(!parsed.ctrl);
+}
+
+test "parseClickModifiers rejects non modifier keys" {
+    try std.testing.expectError(error.UnknownModifier, parseClickModifiers(&.{"enter"}));
 }
 
 fn normalizedCount(value: ?f64) u32 {
@@ -2117,35 +2203,38 @@ fn postMacosKey(key_code: c_macos.CGKeyCode, is_down: bool, flags: c_macos.CGEve
     c_macos.CGEventPost(c_macos.kCGHIDEventTap, event);
 }
 
+fn postModifierKeysMacos(modifiers: ParsedModifiers, is_down: bool, flags: c_macos.CGEventFlags) !void {
+    if (is_down) {
+        if (modifiers.cmd) try postMacosKey(mac_keycode.command, true, flags);
+        if (modifiers.alt) try postMacosKey(mac_keycode.option, true, flags);
+        if (modifiers.ctrl) try postMacosKey(mac_keycode.control, true, flags);
+        if (modifiers.shift) try postMacosKey(mac_keycode.shift, true, flags);
+        if (modifiers.fn_key) try postMacosKey(mac_keycode.fn_key, true, flags);
+        return;
+    }
+
+    if (modifiers.fn_key) try postMacosKey(mac_keycode.fn_key, false, flags);
+    if (modifiers.shift) try postMacosKey(mac_keycode.shift, false, flags);
+    if (modifiers.ctrl) try postMacosKey(mac_keycode.control, false, flags);
+    if (modifiers.alt) try postMacosKey(mac_keycode.option, false, flags);
+    if (modifiers.cmd) try postMacosKey(mac_keycode.command, false, flags);
+}
+
 fn pressMacos(input: PressInput) !void {
     const parsed = try parsePressKey(input.key);
     const key_code = try keyCodeForMacosKey(parsed.key);
     const repeat_count = normalizedCount(input.count);
     const delay_ns = normalizedDelayNs(input.delayMs);
-
-    var flags: c_macos.CGEventFlags = 0;
-    if (parsed.cmd) flags |= c_macos.kCGEventFlagMaskCommand;
-    if (parsed.alt) flags |= c_macos.kCGEventFlagMaskAlternate;
-    if (parsed.ctrl) flags |= c_macos.kCGEventFlagMaskControl;
-    if (parsed.shift) flags |= c_macos.kCGEventFlagMaskShift;
-    if (parsed.fn_key) flags |= c_macos.kCGEventFlagMaskSecondaryFn;
+    const flags = macosEventFlagsForModifiers(parsed.modifiers);
 
     var index: u32 = 0;
     while (index < repeat_count) : (index += 1) {
-        if (parsed.cmd) try postMacosKey(mac_keycode.command, true, flags);
-        if (parsed.alt) try postMacosKey(mac_keycode.option, true, flags);
-        if (parsed.ctrl) try postMacosKey(mac_keycode.control, true, flags);
-        if (parsed.shift) try postMacosKey(mac_keycode.shift, true, flags);
-        if (parsed.fn_key) try postMacosKey(mac_keycode.fn_key, true, flags);
+        try postModifierKeysMacos(parsed.modifiers, true, flags);
 
         try postMacosKey(key_code, true, flags);
         try postMacosKey(key_code, false, flags);
 
-        if (parsed.fn_key) try postMacosKey(mac_keycode.fn_key, false, flags);
-        if (parsed.shift) try postMacosKey(mac_keycode.shift, false, flags);
-        if (parsed.ctrl) try postMacosKey(mac_keycode.control, false, flags);
-        if (parsed.alt) try postMacosKey(mac_keycode.option, false, flags);
-        if (parsed.cmd) try postMacosKey(mac_keycode.command, false, flags);
+        try postModifierKeysMacos(parsed.modifiers, false, flags);
 
         if (delay_ns > 0 and index + 1 < repeat_count) {
             std.Thread.sleep(delay_ns);
@@ -2241,6 +2330,21 @@ fn postWindowsVirtualKey(virtual_key: u16, is_down: bool) void {
     _ = c_windows.SendInput(1, &event, @sizeOf(c_windows.INPUT));
 }
 
+fn postModifierKeysWindows(modifiers: ParsedModifiers, is_down: bool) void {
+    if (is_down) {
+        if (modifiers.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, true);
+        if (modifiers.alt) postWindowsVirtualKey(c_windows.VK_MENU, true);
+        if (modifiers.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, true);
+        if (modifiers.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, true);
+        return;
+    }
+
+    if (modifiers.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, false);
+    if (modifiers.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, false);
+    if (modifiers.alt) postWindowsVirtualKey(c_windows.VK_MENU, false);
+    if (modifiers.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, false);
+}
+
 fn pressWindows(input: PressInput) !void {
     const parsed = try parsePressKey(input.key);
     const key_code = try keyCodeForWindowsKey(parsed.key);
@@ -2249,18 +2353,12 @@ fn pressWindows(input: PressInput) !void {
 
     var index: u32 = 0;
     while (index < repeat_count) : (index += 1) {
-        if (parsed.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, true);
-        if (parsed.alt) postWindowsVirtualKey(c_windows.VK_MENU, true);
-        if (parsed.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, true);
-        if (parsed.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, true);
+        postModifierKeysWindows(parsed.modifiers, true);
 
         postWindowsVirtualKey(key_code, true);
         postWindowsVirtualKey(key_code, false);
 
-        if (parsed.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, false);
-        if (parsed.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, false);
-        if (parsed.alt) postWindowsVirtualKey(c_windows.VK_MENU, false);
-        if (parsed.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, false);
+        postModifierKeysWindows(parsed.modifiers, false);
 
         if (delay_ns > 0 and index + 1 < repeat_count) {
             std.Thread.sleep(delay_ns);
@@ -2326,6 +2424,21 @@ fn postX11Key(display: *c_x11.Display, key_sym: c_ulong, is_down: bool) !void {
     _ = c_x11.XFlush(display);
 }
 
+fn postModifierKeysX11(display: *c_x11.Display, modifiers: ParsedModifiers, is_down: bool) !void {
+    if (is_down) {
+        if (modifiers.cmd) try postX11Key(display, c_x11.XK_Super_L, true);
+        if (modifiers.alt) try postX11Key(display, c_x11.XK_Alt_L, true);
+        if (modifiers.ctrl) try postX11Key(display, c_x11.XK_Control_L, true);
+        if (modifiers.shift) try postX11Key(display, c_x11.XK_Shift_L, true);
+        return;
+    }
+
+    if (modifiers.shift) try postX11Key(display, c_x11.XK_Shift_L, false);
+    if (modifiers.ctrl) try postX11Key(display, c_x11.XK_Control_L, false);
+    if (modifiers.alt) try postX11Key(display, c_x11.XK_Alt_L, false);
+    if (modifiers.cmd) try postX11Key(display, c_x11.XK_Super_L, false);
+}
+
 fn pressX11(input: PressInput) !void {
     const parsed = try parsePressKey(input.key);
     const key_sym = try keySymForX11Key(parsed.key);
@@ -2337,18 +2450,12 @@ fn pressX11(input: PressInput) !void {
 
     var index: u32 = 0;
     while (index < repeat_count) : (index += 1) {
-        if (parsed.cmd) try postX11Key(display, c_x11.XK_Super_L, true);
-        if (parsed.alt) try postX11Key(display, c_x11.XK_Alt_L, true);
-        if (parsed.ctrl) try postX11Key(display, c_x11.XK_Control_L, true);
-        if (parsed.shift) try postX11Key(display, c_x11.XK_Shift_L, true);
+        try postModifierKeysX11(display, parsed.modifiers, true);
 
         try postX11Key(display, key_sym, true);
         try postX11Key(display, key_sym, false);
 
-        if (parsed.shift) try postX11Key(display, c_x11.XK_Shift_L, false);
-        if (parsed.ctrl) try postX11Key(display, c_x11.XK_Control_L, false);
-        if (parsed.alt) try postX11Key(display, c_x11.XK_Alt_L, false);
-        if (parsed.cmd) try postX11Key(display, c_x11.XK_Super_L, false);
+        try postModifierKeysX11(display, parsed.modifiers, false);
 
         if (delay_ns > 0 and index + 1 < repeat_count) {
             std.Thread.sleep(delay_ns);
@@ -2937,12 +3044,12 @@ fn resolveMouseButton(button: []const u8) !MouseButtonKind {
     return error.InvalidMouseButton;
 }
 
-fn postClickPair(point: c.CGPoint, button: MouseButtonKind, click_state: i64) !void {
-    try postMouseButtonEvent(point, button, true, click_state);
-    try postMouseButtonEvent(point, button, false, click_state);
+fn postClickPair(point: c.CGPoint, button: MouseButtonKind, click_state: i64, flags: c_macos.CGEventFlags) !void {
+    try postMouseButtonEvent(point, button, true, click_state, flags);
+    try postMouseButtonEvent(point, button, false, click_state, flags);
 }
 
-fn postMouseButtonEvent(point: c.CGPoint, button: MouseButtonKind, is_down: bool, click_state: i64) !void {
+fn postMouseButtonEvent(point: c.CGPoint, button: MouseButtonKind, is_down: bool, click_state: i64, flags: c_macos.CGEventFlags) !void {
     const button_code: c.CGMouseButton = switch (button) {
         .left => c.kCGMouseButtonLeft,
         .right => c.kCGMouseButtonRight,
@@ -2962,6 +3069,7 @@ fn postMouseButtonEvent(point: c.CGPoint, button: MouseButtonKind, is_down: bool
     defer c.CFRelease(event);
 
     c.CGEventSetIntegerValueField(event, c.kCGMouseEventClickState, click_state);
+    c.CGEventSetFlags(event, flags);
     c.CGEventPost(c.kCGHIDEventTap, event);
 }
 

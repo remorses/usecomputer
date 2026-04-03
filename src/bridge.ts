@@ -191,10 +191,16 @@ export function createBridgeFromNative({ nativeModule }: { nativeModule: NativeM
       }
     },
     async click(input: ClickInput): Promise<void> {
-      const nativeInput: { point: Point; button: 'left' | 'right' | 'middle' | null; count: number | null } = {
+      const nativeInput: {
+        point: Point
+        button: 'left' | 'right' | 'middle' | null
+        count: number | null
+        modifiers: string[]
+      } = {
         point: input.point,
         button: input.button ?? null,
         count: input.count ?? null,
+        modifiers: input.modifiers ?? [],
       }
 
       const result = nativeModule.click(nativeInput)

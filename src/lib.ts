@@ -35,7 +35,7 @@ export async function click(input: NativeClickInput): Promise<void> {
     point: input.point,
     button: normalizeMouseButton(input.button),
     count: input.count ?? 1,
-    modifiers: [],
+    modifiers: input.modifiers ?? [],
   })
 }
 

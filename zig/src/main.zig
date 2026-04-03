@@ -155,8 +155,10 @@ const Click = zeke.cmd("click [target]", "Click at coordinates or target")
     .option("-y [y]", "Y coordinate")
     .option("--button [button]", "Mouse button: left, right, middle")
     .option("--count [count]", "Click count")
-    .option("--modifiers [modifiers]", "Modifiers as ctrl,shift,alt,meta")
-    .option("--coord-map [map]", "Map screenshot-space pixels to desktop coordinates");
+    .optionMany("--modifier <key>", "Hold a modifier while clicking. Repeat for multiple keys.")
+    .option("--coord-map [map]", "Map screenshot-space pixels to desktop coordinates")
+    .example("usecomputer click -x 600 -y 400 --modifier option")
+    .example("usecomputer click -x 600 -y 400 --modifier cmd --modifier shift");
 
 const DebugPoint = zeke.cmd("debug-point [target]", "Validate click coordinates visually")
     .option("-x [x]", "X coordinate")
@@ -305,6 +307,7 @@ fn clickAction(args: Click.Args, opts: Click.Options) !void {
         .point = point,
         .button = opts.button,
         .count = if (opts.count) |c| parseF64(c) else null,
+        .modifiers = opts.modifier,
     });
     if (!result.ok) {
         printError(result);

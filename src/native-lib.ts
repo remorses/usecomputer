@@ -31,7 +31,7 @@ export interface NativeModule {
     region: Region | null
     annotate: boolean | null
   }): NativeDataResult<NativeScreenshotOutput>
-  click(input: { point: Point; button: MouseButton | null; count: number | null }): NativeCommandResult
+  click(input: { point: Point; button: MouseButton | null; count: number | null; modifiers?: string[] | null }): NativeCommandResult
   typeText(input: { text: string; delayMs: number | null }): NativeCommandResult
   press(input: { key: string; count: number | null; delayMs: number | null }): NativeCommandResult
   scroll(input: { direction: string; amount: number; at: Point | null }): NativeCommandResult
