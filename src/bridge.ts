@@ -6,6 +6,8 @@ import type {
   ClickInput,
   DisplayInfo,
   DragInput,
+  KeyDownInput,
+  KeyUpInput,
   NativeCommandResult,
   NativeDataResult,
   Point,
@@ -121,6 +123,8 @@ function unavailableBridge(): UseComputerBridge {
     click: fail,
     typeText: fail,
     press: fail,
+    keyDown: fail,
+    keyUp: fail,
     scroll: fail,
     drag: fail,
     hover: fail,
@@ -224,6 +228,20 @@ export function createBridgeFromNative({ nativeModule }: { nativeModule: NativeM
 
       const result = nativeModule.press(nativeInput)
       const maybeError = unwrapCommand({ result, fallbackCommand: 'press' })
+      if (maybeError instanceof Error) {
+        throw maybeError
+      }
+    },
+    async keyDown(input: KeyDownInput): Promise<void> {
+      const result = nativeModule.keyDown({ key: input.key })
+      const maybeError = unwrapCommand({ result, fallbackCommand: 'keyDown' })
+      if (maybeError instanceof Error) {
+        throw maybeError
+      }
+    },
+    async keyUp(input: KeyUpInput): Promise<void> {
+      const result = nativeModule.keyUp({ key: input.key })
+      const maybeError = unwrapCommand({ result, fallbackCommand: 'keyUp' })
       if (maybeError instanceof Error) {
         throw maybeError
       }

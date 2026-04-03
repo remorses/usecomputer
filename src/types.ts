@@ -88,6 +88,14 @@ export type PressInput = {
   delayMs?: number
 }
 
+export type KeyDownInput = {
+  key: string
+}
+
+export type KeyUpInput = {
+  key: string
+}
+
 export type ScrollInput = {
   direction: ScrollDirection
   amount: number
@@ -123,6 +131,8 @@ export interface UseComputerBridge {
   click(input: ClickInput): Promise<void>
   typeText(input: TypeInput): Promise<void>
   press(input: PressInput): Promise<void>
+  keyDown(input: KeyDownInput): Promise<void>
+  keyUp(input: KeyUpInput): Promise<void>
   scroll(input: ScrollInput): Promise<void>
   drag(input: DragInput): Promise<void>
   hover(input: Point): Promise<void>

@@ -65,6 +65,12 @@ int uc_type_text(const char* text, int delay_ms);
  * count: repeat count. delay_ms: delay between repeats in ms, or -1 for default. */
 int uc_press(const char* key, int count, int delay_ms);
 
+/* Press and hold a key (or chord) without releasing. key must not be NULL. */
+int uc_key_down(const char* key);
+
+/* Release a held key (or chord). key must not be NULL. */
+int uc_key_up(const char* key);
+
 /* ── Scroll ── */
 
 /* direction must not be NULL: "up", "down", "left", "right".

@@ -176,6 +176,10 @@ const Press = zeke.cmd("press <key>", "Press a key or key combination")
     .option("--count [n]", "Number of times to press")
     .option("--delay [ms]", "Delay between presses in ms");
 
+const KeyDown = zeke.cmd("key down <key>", "Press and hold a key without releasing");
+
+const KeyUp = zeke.cmd("key up <key>", "Release a held key");
+
 const Scroll = zeke.cmd("scroll <direction> [amount]", "Scroll in a direction")
     .option("--at [coords]", "Scroll at specific coordinates (x,y)");
 
@@ -512,6 +516,22 @@ fn pressAction(args: Press.Args, opts: Press.Options) !void {
         .count = if (opts.count) |c| parseF64(c) else null,
         .delayMs = if (opts.delay) |d| parseF64(d) else null,
     });
+    if (!result.ok) {
+        printError(result);
+        return error.CommandFailed;
+    }
+}
+
+fn keyDownAction(args: KeyDown.Args, _: KeyDown.Options) !void {
+    const result = lib.keyDown(.{ .key = args.key });
+    if (!result.ok) {
+        printError(result);
+        return error.CommandFailed;
+    }
+}
+
+fn keyUpAction(args: KeyUp.Args, _: KeyUp.Options) !void {
+    const result = lib.keyUp(.{ .key = args.key });
     if (!result.ok) {
         printError(result);
         return error.CommandFailed;
@@ -957,6 +977,8 @@ pub fn main() !void {
         DebugPoint.bind(debugPointAction),
         TypeText.bind(typeTextAction),
         Press.bind(pressAction),
+        KeyDown.bind(keyDownAction),
+        KeyUp.bind(keyUpAction),
         Scroll.bind(scrollAction),
         Drag.bind(dragAction),
         Hover.bind(hoverAction),

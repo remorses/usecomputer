@@ -344,6 +344,14 @@ const PressInput = struct {
     delayMs: ?f64 = null,
 };
 
+const KeyDownInput = struct {
+    key: []const u8,
+};
+
+const KeyUpInput = struct {
+    key: []const u8,
+};
+
 const ScrollInput = struct {
     direction: []const u8,
     amount: f64,
@@ -1895,6 +1903,58 @@ pub fn press(input: PressInput) CommandResult {
     }
 }
 
+pub fn keyDown(input: KeyDownInput) CommandResult {
+    switch (builtin.target.os.tag) {
+        .macos => {
+            keyDownMacos(input) catch |err| {
+                return failCommand("key-down", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        .windows => {
+            keyDownWindows(input) catch |err| {
+                return failCommand("key-down", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        .linux => {
+            keyDownX11(input) catch |err| {
+                return failCommand("key-down", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        else => {
+            return failCommand("key-down", "UNSUPPORTED_PLATFORM", "key-down is unsupported on this platform");
+        },
+    }
+}
+
+pub fn keyUp(input: KeyUpInput) CommandResult {
+    switch (builtin.target.os.tag) {
+        .macos => {
+            keyUpMacos(input) catch |err| {
+                return failCommand("key-up", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        .windows => {
+            keyUpWindows(input) catch |err| {
+                return failCommand("key-up", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        .linux => {
+            keyUpX11(input) catch |err| {
+                return failCommand("key-up", "EVENT_POST_FAILED", @errorName(err));
+            };
+            return okCommand();
+        },
+        else => {
+            return failCommand("key-up", "UNSUPPORTED_PLATFORM", "key-up is unsupported on this platform");
+        },
+    }
+}
+
 pub fn scroll(input: ScrollInput) CommandResult {
     scroll_impl.scroll(.{
         .direction = input.direction,
@@ -2354,6 +2414,100 @@ fn pressX11(input: PressInput) !void {
             std.Thread.sleep(delay_ns);
         }
     }
+}
+
+fn keyDownMacos(input: KeyDownInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_code = try keyCodeForMacosKey(parsed.key);
+
+    var flags: c_macos.CGEventFlags = 0;
+    if (parsed.cmd) flags |= c_macos.kCGEventFlagMaskCommand;
+    if (parsed.alt) flags |= c_macos.kCGEventFlagMaskAlternate;
+    if (parsed.ctrl) flags |= c_macos.kCGEventFlagMaskControl;
+    if (parsed.shift) flags |= c_macos.kCGEventFlagMaskShift;
+    if (parsed.fn_key) flags |= c_macos.kCGEventFlagMaskSecondaryFn;
+
+    if (parsed.cmd) try postMacosKey(mac_keycode.command, true, flags);
+    if (parsed.alt) try postMacosKey(mac_keycode.option, true, flags);
+    if (parsed.ctrl) try postMacosKey(mac_keycode.control, true, flags);
+    if (parsed.shift) try postMacosKey(mac_keycode.shift, true, flags);
+    if (parsed.fn_key) try postMacosKey(mac_keycode.fn_key, true, flags);
+
+    try postMacosKey(key_code, true, flags);
+}
+
+fn keyUpMacos(input: KeyUpInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_code = try keyCodeForMacosKey(parsed.key);
+
+    var flags: c_macos.CGEventFlags = 0;
+    if (parsed.cmd) flags |= c_macos.kCGEventFlagMaskCommand;
+    if (parsed.alt) flags |= c_macos.kCGEventFlagMaskAlternate;
+    if (parsed.ctrl) flags |= c_macos.kCGEventFlagMaskControl;
+    if (parsed.shift) flags |= c_macos.kCGEventFlagMaskShift;
+    if (parsed.fn_key) flags |= c_macos.kCGEventFlagMaskSecondaryFn;
+
+    try postMacosKey(key_code, false, flags);
+
+    if (parsed.fn_key) try postMacosKey(mac_keycode.fn_key, false, flags);
+    if (parsed.shift) try postMacosKey(mac_keycode.shift, false, flags);
+    if (parsed.ctrl) try postMacosKey(mac_keycode.control, false, flags);
+    if (parsed.alt) try postMacosKey(mac_keycode.option, false, flags);
+    if (parsed.cmd) try postMacosKey(mac_keycode.command, false, flags);
+}
+
+fn keyDownWindows(input: KeyDownInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_code = try keyCodeForWindowsKey(parsed.key);
+
+    if (parsed.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, true);
+    if (parsed.alt) postWindowsVirtualKey(c_windows.VK_MENU, true);
+    if (parsed.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, true);
+    if (parsed.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, true);
+
+    postWindowsVirtualKey(key_code, true);
+}
+
+fn keyUpWindows(input: KeyUpInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_code = try keyCodeForWindowsKey(parsed.key);
+
+    postWindowsVirtualKey(key_code, false);
+
+    if (parsed.shift) postWindowsVirtualKey(c_windows.VK_SHIFT, false);
+    if (parsed.ctrl) postWindowsVirtualKey(c_windows.VK_CONTROL, false);
+    if (parsed.alt) postWindowsVirtualKey(c_windows.VK_MENU, false);
+    if (parsed.cmd) postWindowsVirtualKey(c_windows.VK_LWIN, false);
+}
+
+fn keyDownX11(input: KeyDownInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_sym = try keySymForX11Key(parsed.key);
+
+    const display = c_x11.XOpenDisplay(null) orelse return error.XOpenDisplayFailed;
+    defer _ = c_x11.XCloseDisplay(display);
+
+    if (parsed.cmd) try postX11Key(display, c_x11.XK_Super_L, true);
+    if (parsed.alt) try postX11Key(display, c_x11.XK_Alt_L, true);
+    if (parsed.ctrl) try postX11Key(display, c_x11.XK_Control_L, true);
+    if (parsed.shift) try postX11Key(display, c_x11.XK_Shift_L, true);
+
+    try postX11Key(display, key_sym, true);
+}
+
+fn keyUpX11(input: KeyUpInput) !void {
+    const parsed = try parsePressKey(input.key);
+    const key_sym = try keySymForX11Key(parsed.key);
+
+    const display = c_x11.XOpenDisplay(null) orelse return error.XOpenDisplayFailed;
+    defer _ = c_x11.XCloseDisplay(display);
+
+    try postX11Key(display, key_sym, false);
+
+    if (parsed.shift) try postX11Key(display, c_x11.XK_Shift_L, false);
+    if (parsed.ctrl) try postX11Key(display, c_x11.XK_Control_L, false);
+    if (parsed.alt) try postX11Key(display, c_x11.XK_Alt_L, false);
+    if (parsed.cmd) try postX11Key(display, c_x11.XK_Super_L, false);
 }
 
 fn createScreenshotImage(input: struct {
@@ -3134,6 +3288,8 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi
     try js.setNamedProperty(exports, "click", try js.createFunction(click));
     try js.setNamedProperty(exports, "typeText", try js.createFunction(typeText));
     try js.setNamedProperty(exports, "press", try js.createFunction(press));
+    try js.setNamedProperty(exports, "keyDown", try js.createFunction(keyDown));
+    try js.setNamedProperty(exports, "keyUp", try js.createFunction(keyUp));
     try js.setNamedProperty(exports, "scroll", try js.createFunction(scroll));
     try js.setNamedProperty(exports, "drag", try js.createFunction(drag));
     try js.setNamedProperty(exports, "hover", try js.createFunction(hover));

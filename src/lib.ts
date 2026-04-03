@@ -54,6 +54,17 @@ export async function press(input: NativePressInput): Promise<void> {
   })
 }
 
+export type NativeKeyDownInput = Parameters<NativeModule['keyDown']>[0]
+export type NativeKeyUpInput = Parameters<NativeModule['keyUp']>[0]
+
+export async function keyDown(input: NativeKeyDownInput): Promise<void> {
+  return bridge.keyDown({ key: input.key })
+}
+
+export async function keyUp(input: NativeKeyUpInput): Promise<void> {
+  return bridge.keyUp({ key: input.key })
+}
+
 export async function scroll(input: NativeScrollInput): Promise<void> {
   return bridge.scroll({
     direction: normalizeDirection(input.direction),

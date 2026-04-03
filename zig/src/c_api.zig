@@ -224,6 +224,30 @@ export fn uc_press(key: ?[*:0]const u8, count: c_int, delay_ms: c_int) c_int {
     return handleCommandError(result);
 }
 
+export fn uc_key_down(key: ?[*:0]const u8) c_int {
+    clearError();
+    const key_ptr = key orelse {
+        setError("key must not be NULL");
+        return -1;
+    };
+    const key_slice = std.mem.sliceTo(key_ptr, 0);
+    const result = lib.keyDown(.{ .key = key_slice });
+    if (result.ok) return 0;
+    return handleCommandError(result);
+}
+
+export fn uc_key_up(key: ?[*:0]const u8) c_int {
+    clearError();
+    const key_ptr = key orelse {
+        setError("key must not be NULL");
+        return -1;
+    };
+    const key_slice = std.mem.sliceTo(key_ptr, 0);
+    const result = lib.keyUp(.{ .key = key_slice });
+    if (result.ok) return 0;
+    return handleCommandError(result);
+}
+
 export fn uc_scroll(
     direction: ?[*:0]const u8,
     amount: c_int,

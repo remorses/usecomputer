@@ -34,6 +34,8 @@ export interface NativeModule {
   click(input: { point: Point; button: MouseButton | null; count: number | null }): NativeCommandResult
   typeText(input: { text: string; delayMs: number | null }): NativeCommandResult
   press(input: { key: string; count: number | null; delayMs: number | null }): NativeCommandResult
+  keyDown(input: { key: string }): NativeCommandResult
+  keyUp(input: { key: string }): NativeCommandResult
   scroll(input: { direction: string; amount: number; at: Point | null }): NativeCommandResult
   drag(input: { from: Point; to: Point; cp: Point | null; durationMs: number | null; button: MouseButton | null }): NativeCommandResult
   hover(input: Point): NativeCommandResult
