@@ -50,6 +50,10 @@ describe('native bridge contract', () => {
     // -- Keyboard (works on both platforms) --
     await bridge.typeText({ text: 'h', delayMs: 30 })
     await bridge.press({ key: 'backspace', count: 1 })
+    await bridge.keyDown({ key: 'a' })
+    await bridge.keyUp({ key: 'a' })
+    await bridge.keyDown({ key: 'shift+b' })
+    await bridge.keyUp({ key: 'shift+b' })
 
     // -- Scroll --
     await bridge.scroll({ direction: 'down', amount: 1 })
