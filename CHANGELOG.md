@@ -4,6 +4,29 @@
 
 All notable changes to `usecomputer` will be documented in this file.
 
+## 0.1.10
+
+1. **Added repeatable `--modifier <key>` support to `click`** — hold one or more keyboard modifiers while clicking, using the same modifier names and aliases accepted by `press` (`cmd`, `command`, `meta`, `option`, `alt`, `ctrl`, `control`, `shift`, `fn`):
+
+   ```bash
+   # option-click on macOS
+   usecomputer click -x 600 -y 400 --modifier option
+
+   # hold multiple modifiers for one click
+   usecomputer click -x 600 -y 400 --modifier cmd --modifier shift
+   ```
+
+   `usecomputer click --help` now shows command-specific help with examples for this flow instead of only the global command list.
+
+2. **Fixed negative `-x` and `-y` values in CLI commands** — commands that accept optional coordinate flags now correctly parse negative screen positions, which matters for multi-display layouts where a monitor sits to the left or above the primary display:
+
+   ```bash
+   usecomputer hover -x -1200 -y 300
+   usecomputer debug-point -x -800 -y 240
+   ```
+
+3. **Fixed GitHub release archives for standalone and C API downloads** — CI now always uploads release assets when a matching GitHub release exists, and Windows builds include `usecomputer_c.dll` from the correct output path. Downloaded release archives are now consistent across macOS, Linux, and Windows.
+
 ## 0.1.9
 
 1. **C API shared library** — `libusecomputer_c` is now built for all
