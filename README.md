@@ -15,6 +15,18 @@ binary — no Node.js runtime required.
 npm install -g usecomputer
 ```
 
+## Agent skill
+
+If you use an AI coding agent (OpenCode, Claude Code, etc.), install the
+usecomputer skill so the agent knows how to use the CLI correctly:
+
+```bash
+npx skills add remorses/usecomputer
+```
+
+The skill teaches the agent the screenshot → act → screenshot feedback loop,
+coord-map usage, and window-scoped screenshot workflow.
+
 ## Requirements
 
 - **macOS** — Accessibility permission enabled for your terminal app
@@ -297,6 +309,28 @@ targeting:
 ```bash
 usecomputer debug-point -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
 ```
+
+### Window-scoped screenshots
+
+Capture only a specific application window for a smaller, more focused image.
+This improves model accuracy because the screenshot contains only the target
+app — no dock, menu bar, or background windows.
+
+```bash
+# 1. find the window ID
+usecomputer window list --json
+
+# 2. screenshot that window
+usecomputer screenshot ./tmp/app.png --window 12345 --json
+# output: {"path":"./tmp/app.png","coordMap":"200,100,1200,800,1568,1045",...}
+
+# 3. click using the coord-map (maps window screenshot pixels to desktop coords)
+usecomputer click -x 400 -y 220 --coord-map "200,100,1200,800,1568,1045"
+```
+
+The coord-map from a window screenshot includes the window's position on
+screen, so pointer commands land on the correct desktop coordinates even
+though the screenshot only shows one window.
 
 ## Kitty Graphics Protocol (agent-friendly screenshots)
 
