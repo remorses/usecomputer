@@ -4,7 +4,7 @@
 
 All notable changes to `usecomputer` will be documented in this file.
 
-## Unreleased
+## 0.1.11
 
 1. **Fixed macOS `screenshot --window` captures for non-frontmost apps and multi-display setups** — window-scoped screenshots now use the native macOS `screencapture -l<window-id>` path, which correctly captures windows like Finder, Preview, Slack, and Chrome even when CoreGraphics window capture is unreliable. Region screenshots also now translate desktop-global coordinates into display-local coordinates before cropping secondary displays:
 
