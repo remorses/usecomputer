@@ -219,9 +219,8 @@ X11/Xext/Xtst/png headers. Only CI can produce a correct release.
 
 To release:
 
-1. Bump the version in `package.json`
-2. Update `CHANGELOG.md` with the new version and changes
-3. Commit and push to `main`
+1. Add a `.changeset/*.md` file describing the changes (load `changesets` skill for format)
+2. Commit and push to `main`
 4. GitHub Actions CI (`ci.yml`) builds all artifacts and publishes
 
 CI builds three artifact types per platform (macOS arm64/x64, Linux
