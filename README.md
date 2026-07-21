@@ -470,6 +470,83 @@ Platform note:
 - Windows/Linux: `cmd` maps to Win/Super.
 - For app shortcuts that should work on Windows/Linux too, prefer `ctrl+...`.
 
+## Listen — global input event stream
+
+The `listen` command streams all mouse and keyboard events as
+**Server-Sent Events (SSE)** to stdout. It runs until interrupted with
+Ctrl+C.
+
+```bash
+usecomputer listen
+```
+
+Output:
+
+```
+event: mouseClick
+data: {"type":"mouseClick","button":"left","x":540,"y":320,"timestamp":1719500000123}
+
+event: keyDown
+data: {"type":"keyDown","key":"a","keyCode":0,"timestamp":1719500000456}
+
+event: keyUp
+data: {"type":"keyUp","key":"a","keyCode":0,"timestamp":1719500000489}
+
+event: scroll
+data: {"type":"scroll","x":200,"y":300,"deltaX":0,"deltaY":-3,"timestamp":1719500000600}
+```
+
+Every event has a `type` field that doubles as the SSE event name and as a
+TypeScript discriminated union tag.
+
+### Event types
+
+| Type | Fields |
+|------|--------|
+| `mouseClick` | `button`, `x`, `y`, `timestamp` |
+| `mouseRelease` | `button`, `x`, `y`, `timestamp` |
+| `mouseMove` | `x`, `y`, `timestamp` |
+| `keyDown` | `key`, `keyCode`, `timestamp` |
+| `keyUp` | `key`, `keyCode`, `timestamp` |
+| `flagsChanged` | `key`, `keyCode`, `timestamp` |
+| `scroll` | `x`, `y`, `deltaX`, `deltaY`, `timestamp` |
+
+`flagsChanged` fires when modifier keys (Shift, Command, Option, Control,
+Fn) are pressed or released. The `key` field identifies which modifier, and
+`keyCode` is the macOS virtual keycode.
+
+The `button` field on mouse events is `"left"`, `"right"`, `"middle"`, or
+`"other"` (for side buttons).
+
+### TypeScript async generator
+
+The npm package exports a typed `listen()` function that spawns the native
+binary and yields events as a typed async generator:
+
+```ts
+import { listen } from 'usecomputer'
+
+for await (const event of listen()) {
+  if (event.type === 'keyDown') {
+    console.log(event.key, event.timestamp)
+  }
+  if (event.type === 'mouseClick') {
+    console.log(event.x, event.y, event.button)
+  }
+}
+```
+
+The generator kills the child process automatically when you `break` out of
+the loop or call `.return()`. The `InputEvent` union type provides full
+autocomplete for each event shape.
+
+### Platform support
+
+Currently **macOS only**. Requires **Input Monitoring** permission (System
+Settings → Privacy & Security → Input Monitoring). This is the same
+permission needed for global event observation; click/type commands use
+Accessibility permission instead. Linux and Windows support is planned.
+
 ## Coordinate options
 
 Commands that target coordinates accept `-x` and `-y` flags:

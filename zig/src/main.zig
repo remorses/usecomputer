@@ -5,6 +5,7 @@ const zeke = @import("zeke");
 const lib = @import("usecomputer_lib");
 const table = @import("table.zig");
 const kitty_graphics = @import("kitty-graphics.zig");
+const listen_impl = @import("listen.zig");
 
 const File = std.fs.File;
 const Writer = File.DeprecatedWriter;
@@ -213,6 +214,8 @@ const WindowList = zeke.cmd("window list", "List open windows")
 const DesktopList = zeke.cmd("desktop list", "List desktops as display indexes and sizes")
     .option("--windows", "Include available windows grouped by desktop index")
     .option("--json", "Output as JSON");
+
+const Listen = zeke.cmd("listen", "Stream global input events as SSE to stdout");
 
 // ─── Action functions ───
 
@@ -860,6 +863,14 @@ fn printWindowTable(allocator: std.mem.Allocator, json_data: []const u8) !void {
     }
 }
 
+fn listenAction(_: Listen.Args, _: Listen.Options) !void {
+    listen_impl.listen() catch |err| {
+        const stderr = getStderr();
+        stderr.print("error: {s}\n", .{@errorName(err)}) catch {};
+        return error.CommandFailed;
+    };
+}
+
 // ─── List command actions ───
 
 fn displayListAction(_: DisplayList.Args, opts: DisplayList.Options) !void {
@@ -970,6 +981,7 @@ pub fn main() !void {
         DisplayList.bind(displayListAction),
         DesktopList.bind(desktopListAction),
         WindowList.bind(windowListAction),
+        Listen.bind(listenAction),
     }).init(gpa.allocator(), "usecomputer");
 
     const build_options = @import("build_options");

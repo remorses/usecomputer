@@ -101,6 +101,76 @@ export type DragInput = {
   button: MouseButton
 }
 
+// ─── Listen event types (discriminated union via "type" field) ───
+
+/** Button values for listen events. Includes 'other' for side buttons (button 3+). */
+export type InputMouseButton = 'left' | 'right' | 'middle' | 'other'
+
+export type MouseClickEvent = {
+  type: 'mouseClick'
+  button: InputMouseButton
+  x: number
+  y: number
+  timestamp: number
+}
+
+export type MouseReleaseEvent = {
+  type: 'mouseRelease'
+  button: InputMouseButton
+  x: number
+  y: number
+  timestamp: number
+}
+
+export type MouseMoveEvent = {
+  type: 'mouseMove'
+  x: number
+  y: number
+  timestamp: number
+}
+
+export type KeyDownEvent = {
+  type: 'keyDown'
+  key: string
+  keyCode: number
+  timestamp: number
+}
+
+export type KeyUpEvent = {
+  type: 'keyUp'
+  key: string
+  keyCode: number
+  timestamp: number
+}
+
+/** Modifier key state change (Shift, Command, Option, Control, Fn, Caps Lock). */
+export type FlagsChangedEvent = {
+  type: 'flagsChanged'
+  key: string
+  keyCode: number
+  timestamp: number
+}
+
+export type ScrollEvent = {
+  type: 'scroll'
+  x: number
+  y: number
+  deltaX: number
+  deltaY: number
+  timestamp: number
+}
+
+export type InputEvent =
+  | MouseClickEvent
+  | MouseReleaseEvent
+  | MouseMoveEvent
+  | KeyDownEvent
+  | KeyUpEvent
+  | FlagsChangedEvent
+  | ScrollEvent
+
+// ─── Native command types ───
+
 export type NativeErrorObject = {
   code: string
   message: string

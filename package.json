@@ -78,6 +78,7 @@
     "win32"
   ],
   "dependencies": {
+    "eventsource-parser": "^3.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
