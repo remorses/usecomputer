@@ -470,14 +470,14 @@ Platform note:
 - Windows/Linux: `cmd` maps to Win/Super.
 - For app shortcuts that should work on Windows/Linux too, prefer `ctrl+...`.
 
-## Listen — global input event stream
+## Observe — global input event stream
 
-The `listen` command streams all mouse and keyboard events as
+The `observe` command streams all mouse and keyboard events as
 **Server-Sent Events (SSE)** to stdout. It runs until interrupted with
 Ctrl+C.
 
 ```bash
-usecomputer listen
+usecomputer observe
 ```
 
 Output:
@@ -520,13 +520,13 @@ The `button` field on mouse events is `"left"`, `"right"`, `"middle"`, or
 
 ### TypeScript async generator
 
-The npm package exports a typed `listen()` function that spawns the native
+The npm package exports a typed `observe()` function that spawns the native
 binary and yields events as a typed async generator:
 
 ```ts
-import { listen } from 'usecomputer'
+import { observe } from 'usecomputer'
 
-for await (const event of listen()) {
+for await (const event of observe()) {
   if (event.type === 'keyDown') {
     console.log(event.key, event.timestamp)
   }
@@ -537,8 +537,23 @@ for await (const event of listen()) {
 ```
 
 The generator kills the child process automatically when you `break` out of
-the loop or call `.return()`. The `InputEvent` union type provides full
-autocomplete for each event shape.
+the loop. The `InputEvent` union type provides full autocomplete for each
+event shape.
+
+To stop observing from outside the loop, pass an `AbortSignal`:
+
+```ts
+const controller = new AbortController()
+
+setTimeout(() => controller.abort(), 5000) // stop after 5 seconds
+
+for await (const event of observe({ signal: controller.signal })) {
+  console.log(event.type)
+}
+```
+
+Consecutive `mouseMove` events are automatically coalesced so the queue
+stays bounded even if the consumer is slow.
 
 ### Platform support
 

@@ -5,7 +5,7 @@
 
 import os from 'node:os'
 import { describe, expect, test } from 'vitest'
-import { listen } from './listen.js'
+import { observe } from './listen.js'
 import { click, press } from './lib.js'
 import type { InputEvent } from './types.js'
 
@@ -20,7 +20,7 @@ async function collectEvents(opts: {
   fire: () => Promise<void>
   stopWhen: (events: InputEvent[]) => boolean
 }): Promise<InputEvent[]> {
-  const generator = listen()
+  const generator = observe()
   const events: InputEvent[] = []
   let done = false
 
@@ -52,7 +52,7 @@ async function collectEvents(opts: {
 
 // Tests must run sequentially since each spawns a global CGEventTap and
 // concurrent taps can interfere with each other.
-describe.sequential('listen', () => {
+describe.sequential('observe', () => {
   const listenTest = isMacOS ? test : test.skip
 
   listenTest('yields mouseClick events from synthetic clicks', async () => {

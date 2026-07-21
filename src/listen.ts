@@ -3,6 +3,14 @@
 //
 // The child's stderr is captured so permission errors and unsupported-platform
 // messages surface as thrown errors instead of silently returning.
+//
+// Memory notes:
+// - Consecutive mouseMove events are coalesced to prevent unbounded queue growth
+//   when the consumer is slow (mouse moves arrive at ~125 Hz).
+// - Pass an AbortSignal to cleanly stop the generator when no events are flowing.
+//   Without a signal, breaking out of the for-await loop works when events are
+//   actively arriving, but may hang if .return() is called while the generator
+//   is waiting with no incoming events.
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -33,20 +41,30 @@ function resolveBinaryPath(): string {
   )
 }
 
-export async function* listen(): AsyncGenerator<InputEvent, void, undefined> {
+export type ListenOptions = {
+  /** Signal to abort the listener. When aborted, the child process is killed
+   *  and the generator returns cleanly. This is the recommended way to stop
+   *  listening from outside the for-await loop. */
+  signal?: AbortSignal
+}
+
+export async function* observe(options?: ListenOptions): AsyncGenerator<InputEvent, void, undefined> {
   const binaryPath = resolveBinaryPath()
+  const signal = options?.signal
 
   let child: ChildProcess | null = null
-  // Queue of parsed events waiting to be yielded
+  // Queue of parsed events waiting to be yielded.
+  // Consecutive mouseMove events are coalesced: the latest replaces the
+  // previous one so the queue stays bounded during fast mouse movement.
   const queue: InputEvent[] = []
   // Resolve function for when a new event arrives while generator is waiting
   let notify: (() => void) | null = null
   // Track whether the child has exited
   let exited = false
   let exitError: Error | null = null
-  // Whether the generator is being intentionally stopped (break / .return())
+  // Whether the generator is being intentionally stopped
   let stopping = false
-  // Capture stderr for error reporting
+  // Capture stderr for error reporting (capped at 4 KB)
   let stderrOutput = ''
 
   function wake() {
@@ -57,16 +75,47 @@ export async function* listen(): AsyncGenerator<InputEvent, void, undefined> {
     }
   }
 
+  function stopChild() {
+    if (!child || exited || stopping) return
+    stopping = true
+    child.kill('SIGTERM')
+    const c = child
+    const forceKillTimeout = setTimeout(() => {
+      if (!exited) c.kill('SIGKILL')
+    }, 1000)
+    c.on('close', () => clearTimeout(forceKillTimeout))
+  }
+
+  // If the caller provided an AbortSignal, wire it up to kill the child.
+  // This breaks the generator out of its pending await so .return() can proceed.
+  const onAbort = signal
+    ? () => {
+        stopChild()
+        wake()
+      }
+    : undefined
+
   try {
-    child = spawn(binaryPath, ['listen'], {
+    if (signal?.aborted) return
+
+    child = spawn(binaryPath, ['observe'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+
+    if (onAbort) signal!.addEventListener('abort', onAbort, { once: true })
 
     const parser = createParser({
       onEvent(sseEvent) {
         try {
           const data = JSON.parse(sseEvent.data) as InputEvent
-          queue.push(data)
+          // Coalesce consecutive mouseMove events to prevent unbounded growth.
+          // At ~125 Hz, a slow consumer would otherwise accumulate thousands
+          // of move events. We keep only the latest position.
+          if (data.type === 'mouseMove' && queue.length > 0 && queue[queue.length - 1]!.type === 'mouseMove') {
+            queue[queue.length - 1] = data
+          } else {
+            queue.push(data)
+          }
           wake()
         } catch {
           // Skip malformed events
@@ -79,7 +128,9 @@ export async function* listen(): AsyncGenerator<InputEvent, void, undefined> {
     })
 
     child.stderr!.on('data', (chunk: Buffer) => {
-      stderrOutput += chunk.toString()
+      if (stderrOutput.length < 4096) {
+        stderrOutput += chunk.toString()
+      }
     })
 
     child.on('error', (err) => {
@@ -89,8 +140,6 @@ export async function* listen(): AsyncGenerator<InputEvent, void, undefined> {
     })
 
     child.on('close', (code) => {
-      // If we're not intentionally stopping and the child exited with an error,
-      // surface it. This catches permission failures, unsupported platform, etc.
       if (!stopping && code !== 0 && code !== null) {
         const msg = stderrOutput.trim() || `usecomputer listen exited with code ${code}`
         exitError = new Error(msg)
@@ -107,39 +156,24 @@ export async function* listen(): AsyncGenerator<InputEvent, void, undefined> {
       }
 
       // If the child has exited and the queue is drained, we're done
-      if (exited) {
-        if (exitError) {
-          throw exitError
-        }
+      if (exited || stopping) {
+        if (exitError) throw exitError
         return
       }
 
-      // Wait for the next event or child exit
+      // Wait for the next event, child exit, or abort signal.
       await new Promise<void>((resolve) => {
         notify = resolve
       })
     }
   } finally {
-    // Cleanup: kill the child process when the generator is returned/thrown
-    stopping = true
+    if (onAbort) signal?.removeEventListener('abort', onAbort)
+    stopChild()
+    // Wait for the child to actually exit
     if (child && !exited) {
-      child.kill('SIGTERM')
-      // Wait for close, with a SIGKILL fallback after 1 second
       await new Promise<void>((resolve) => {
-        const forceKillTimeout = setTimeout(() => {
-          if (child && !exited) {
-            child.kill('SIGKILL')
-          }
-        }, 1000)
-        child!.on('close', () => {
-          clearTimeout(forceKillTimeout)
-          resolve()
-        })
-        // If already exited between our check and listener setup, resolve now
-        if (exited) {
-          clearTimeout(forceKillTimeout)
-          resolve()
-        }
+        child!.on('close', () => resolve())
+        if (exited) resolve()
       })
     }
   }

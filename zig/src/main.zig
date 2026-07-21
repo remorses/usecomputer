@@ -215,7 +215,7 @@ const DesktopList = zeke.cmd("desktop list", "List desktops as display indexes a
     .option("--windows", "Include available windows grouped by desktop index")
     .option("--json", "Output as JSON");
 
-const Listen = zeke.cmd("listen", "Stream global input events as SSE to stdout");
+const Observe = zeke.cmd("observe", "Stream global input events as SSE to stdout");
 
 // ─── Action functions ───
 
@@ -863,7 +863,7 @@ fn printWindowTable(allocator: std.mem.Allocator, json_data: []const u8) !void {
     }
 }
 
-fn listenAction(_: Listen.Args, _: Listen.Options) !void {
+fn observeAction(_: Observe.Args, _: Observe.Options) !void {
     listen_impl.listen() catch |err| {
         const stderr = getStderr();
         stderr.print("error: {s}\n", .{@errorName(err)}) catch {};
@@ -981,7 +981,7 @@ pub fn main() !void {
         DisplayList.bind(displayListAction),
         DesktopList.bind(desktopListAction),
         WindowList.bind(windowListAction),
-        Listen.bind(listenAction),
+        Observe.bind(observeAction),
     }).init(gpa.allocator(), "usecomputer");
 
     const build_options = @import("build_options");
