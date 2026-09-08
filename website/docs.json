@@ -1,0 +1,50 @@
+{
+  "$schema": "https://holocron.so/docs.json",
+  "name": "usecomputer",
+  "description": "Desktop automation CLI for AI agents. Screenshot, click, type, scroll, and drag on macOS, Linux, and Windows.",
+  "favicon": "/favicon.ico",
+  "colors": {
+    "primary": "#2563eb"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "layout": {
+    "mode": "compact"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "navbar": {
+    "links": [
+      {
+        "type": "github",
+        "href": "https://github.com/remorses/usecomputer"
+      }
+    ]
+  },
+  "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/remorses/usecomputer",
+          "icon": "lucide:github"
+        },
+        {
+          "anchor": "npm",
+          "href": "https://www.npmjs.com/package/usecomputer",
+          "icon": "lucide:package"
+        }
+      ]
+    },
+    "groups": [
+      {
+        "group": "Overview",
+        "icon": "lucide:home",
+        "pages": ["index"]
+      }
+    ]
+  },
+  "decorativeLines": "none"
+}

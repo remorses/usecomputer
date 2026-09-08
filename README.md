@@ -1,5 +1,3 @@
-<!-- Purpose: npm package usage and install guide for usecomputer CLI. -->
-
 # usecomputer
 
 `usecomputer` is a desktop automation CLI for AI agents. It works on macOS,

@@ -8,3 +8,6 @@ zig-out
 __snapshots__
 opensrc
 zig-pkg
+.wrangler
+.dev.vars
+website/worker-configuration.d.ts

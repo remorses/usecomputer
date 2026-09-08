@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "usecomputer-website",
+  "main": "./src/server.tsx",
+  "compatibility_date": "2026-08-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "custom_domain": true,
+      "pattern": "usecomputer.org"
+    },
+    {
+      "custom_domain": true,
+      "pattern": "www.usecomputer.org"
+    }
+  ],
+  "env": {
+    "preview": {
+      "name": "usecomputer-website-preview",
+      "routes": []
+    }
+  }
+}

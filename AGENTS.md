@@ -256,3 +256,13 @@ gh run watch --exit-status
 
 Report the result to the user. Do not consider the release done until CI
 is green and the publish step has completed.
+
+## Website
+
+The Holocron site lives in `website/` and renders `README.md` as the homepage.
+It is deployed to Cloudflare Workers on `usecomputer.org`.
+
+```bash
+pnpm --dir website dev
+pnpm --dir website deploy:prod
+```

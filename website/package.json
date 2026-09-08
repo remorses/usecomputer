@@ -1,0 +1,39 @@
+{
+  "name": "usecomputer-website",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "deploy": "CLOUDFLARE_ENV=preview vite build && wrangler deploy --env preview",
+    "deploy:prod": "vite build && wrangler deploy",
+    "dev": "tuistory -- vite dev",
+    "start": "vite preview",
+    "typecheck": "tsc",
+    "typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@cloudflare/vite-plugin": "1.35.0",
+    "@holocron.so/vite": "^0.33.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "spiceflow": "1.26.0-rsc.18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.8.3",
+    "vite": "^8.2.1",
+    "wrangler": "4.92.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
+  }
+}
