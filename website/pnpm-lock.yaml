@@ -12,8 +12,8 @@ importers:
         specifier: 1.35.0
         version: 1.35.0(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)
       '@holocron.so/vite':
-        specifier: ^0.33.0
-        version: 0.33.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(hono@4.13.7)(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)
+        specifier: ^0.35.1
+        version: 0.35.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(hono@4.13.7)(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -343,8 +343,8 @@ packages:
     resolution: {integrity: sha512-7vXkxbuqZa5EDobpNy22lkdBhhRgYsUi5N6CB/N1ASDudg9juW3TZyypTI9iHdop0lyLXChi+tY4qYkyr7/CCw==}
     hasBin: true
 
-  '@holocron.so/vite@0.33.1':
-    resolution: {integrity: sha512-7aLftuhQ2xW1BbP2f/EzbEYukkEvobNT3Mva1EQNHPzheufXuBviqi1zMH4EWjJ9meYTAQCT4CdCGRA4Xa+Vig==}
+  '@holocron.so/vite@0.35.1':
+    resolution: {integrity: sha512-4zGKjwLGUevNsQrfpMPoa/i+WFzcdM9YjnmitLmJu7Tl812SyA2VLUMqbrMQ/qJpbfIcWAGdF7OX5QZpnvN8og==}
     hasBin: true
 
   '@hono/node-server@2.1.1':
@@ -3211,7 +3211,7 @@ snapshots:
       - supports-color
       - vite
 
-  '@holocron.so/vite@0.33.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(hono@4.13.7)(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)':
+  '@holocron.so/vite@0.35.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(hono@4.13.7)(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)':
     dependencies:
       '@cloudflare/vite-plugin': 1.35.0(vite@8.2.2(esbuild@0.27.3)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20260515.1)(wrangler@4.92.0)
       '@fontsource-variable/inter': 5.3.0

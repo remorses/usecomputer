@@ -4,6 +4,8 @@
   "main": "./src/server.tsx",
   "compatibility_date": "2026-08-09",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
   "routes": [
     {
       "custom_domain": true,
@@ -17,6 +19,8 @@
   "env": {
     "preview": {
       "name": "usecomputer-website-preview",
+      "workers_dev": true,
+      "preview_urls": true,
       "routes": []
     }
   }
