@@ -1,11 +1,31 @@
 # usecomputer
 
-`usecomputer` is a desktop automation CLI for AI agents. It works on macOS,
-Linux (X11), and Windows.
+**Desktop automation CLI** for AI agents. Screenshot, click, type, scroll, and drag on macOS, Linux, and Windows.
 
-Screenshot, mouse control (move, click, drag, scroll), and keyboard synthesis
-(`type` and `press`) are all available as CLI commands backed by a native Zig
-binary — no Node.js runtime required.
+```bash
+npm install -g usecomputer
+usecomputer screenshot ./shot.png --json
+usecomputer click -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
+```
+
+Native **Zig** backend. No Node.js runtime required.
+
+## Features
+
+- **Screenshot** with coord-map so clicks land on the real screen
+- **Mouse** move, click, drag, and scroll
+- **Keyboard** `type` and `press`
+- **Window-scoped** capture for focused agent loops
+- **Observe** global input as SSE on macOS
+
+```diagram
+  screenshot ──────────────────────────────────────────► vision model
+       ▲                                                      │
+       │                                                      ▼
+       │                                               click / type / scroll
+       │                                                      │
+       └──────────────────── next frame ◄─────────────────────┘
+```
 
 ## Install
 
@@ -15,21 +35,19 @@ npm install -g usecomputer
 
 ## Agent skill
 
-If you use an AI coding agent (OpenCode, Claude Code, etc.), install the
-usecomputer skill so the agent knows how to use the CLI correctly:
+If you use an AI coding agent (OpenCode, Claude Code, etc.), install the **usecomputer skill** so the agent knows how to use the CLI correctly:
 
 ```bash
 npx skills add remorses/usecomputer
 ```
 
-The skill teaches the agent the screenshot → act → screenshot feedback loop,
-coord-map usage, and window-scoped screenshot workflow.
+The skill teaches the **screenshot → act → screenshot** feedback loop, coord-map usage, and window-scoped screenshot workflow.
 
 ## Requirements
 
-- **macOS** — Accessibility permission enabled for your terminal app
-- **Linux** — X11 session with `DISPLAY` set (Wayland via XWayland works too)
-- **Windows** — run in an interactive desktop session (automation input is blocked on locked desktop)
+- **macOS.** Accessibility permission enabled for your terminal app
+- **Linux.** X11 session with `DISPLAY` set (Wayland via XWayland works too)
+- **Windows.** Run in an interactive desktop session. Automation input is blocked on a locked desktop
 
 ## Quick start
 
@@ -67,8 +85,300 @@ await usecomputer.click({
 })
 ```
 
-These exported functions intentionally mirror the native command shapes used by
-the Zig N-API module. Optional native fields are passed as `null` when absent.
+These exported functions **mirror** the native command shapes used by the Zig N-API module. Optional native fields are passed as `null` when absent.
+
+## Screenshot scaling and coord-map
+
+`usecomputer screenshot` always **scales** the output image so the longest edge is at most `1568` px. This keeps screenshots in a model-friendly size for computer-use agents.
+
+Screenshot output includes:
+
+- `desktopIndex` (display index used for capture)
+- `coordMap` in the form `captureX,captureY,captureWidth,captureHeight,imageWidth,imageHeight`
+- `hint` with usage text for coordinate mapping
+
+Always pass the exact **`--coord-map`** value emitted by `usecomputer screenshot` to pointer commands when you are clicking coordinates from that screenshot. This maps screenshot-space coordinates back to real screen coordinates.
+
+```diagram
+  Desktop 1600x900                              Screenshot 1568x882
+  ┌───────────────────────────┐                 ┌────────────────────────┐
+  │                           │                 │                        │
+  │         click ●           │                 │        model ●         │
+  │                           │                 │                        │
+  └────────────┬──────────────┘                 └───────────┬────────────┘
+               ▲                                            │
+               │              --coord-map                   │
+               └──────── 0,0,1600,900,1568,882 ◄────────────┘
+```
+
+```bash
+usecomputer screenshot ./shot.png --json
+usecomputer click -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
+usecomputer mouse move -x 100 -y 80 --coord-map "0,0,1600,900,1568,882"
+```
+
+### Validate with debug-point
+
+To validate a target before clicking, use **`debug-point`**. It takes the same coordinates and `--coord-map`, captures a fresh full-desktop screenshot, and draws a red marker where the click would land. When `--coord-map` is present, it captures that same region so the overlay matches the screenshot you are targeting:
+
+```bash
+usecomputer debug-point -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
+```
+
+### Window-scoped screenshots
+
+Capture only a specific **application window** for a smaller, more focused image. This improves model accuracy because the screenshot contains only the target app; no dock, menu bar, or background windows.
+
+```diagram
+  Desktop                                         Window screenshot
+  ┌──────────┬──────────────────────┐             ┌──────────────────┐
+  │  dock    │                      │             │                  │
+  │          │     target app       │────────────►│   target app     │
+  │          │                      │             │                  │
+  └──────────┴──────────────────────┘             └────────┬─────────┘
+                                                           │
+              click uses window coord-map                  │
+              200,100,1200,800,1568,1045 ◄─────────────────┘
+```
+
+```bash
+# 1. find the window ID
+usecomputer window list --json
+
+# 2. screenshot that window
+usecomputer screenshot ./tmp/app.png --window 12345 --json
+# output: {"path":"./tmp/app.png","coordMap":"200,100,1200,800,1568,1045",...}
+
+# 3. click using the coord-map (maps window screenshot pixels to desktop coords)
+usecomputer click -x 400 -y 220 --coord-map "200,100,1200,800,1568,1045"
+```
+
+The coord-map from a window screenshot includes the window's **position on screen**, so pointer commands land on the correct desktop coordinates even though the screenshot only shows one window.
+
+## Keyboard commands
+
+### Type text
+
+```bash
+# Short text
+usecomputer type "hello from usecomputer"
+
+# Type from stdin (good for multiline or very long text)
+cat ./notes.txt | usecomputer type --stdin --chunk-size 4000 --chunk-delay 15
+
+# Simulate slower typing for apps that drop fast input
+usecomputer type "hello" --delay 20
+```
+
+**`--delay`** is the per-character delay in milliseconds.
+
+For very long text, prefer **`--stdin`** + `--chunk-size` so shell argument limits and app input buffers are less likely to cause dropped characters.
+
+### Press keys and shortcuts
+
+```bash
+# Single key
+usecomputer press "enter"
+
+# Chords
+usecomputer press "cmd+s"
+usecomputer press "cmd+shift+p"
+usecomputer press "ctrl+s"
+
+# Repeats
+usecomputer press "down" --count 10 --delay 30
+```
+
+Modifier aliases: `cmd`/`command`/`meta`, `ctrl`/`control`, `alt`/`option`, `shift`, `fn`.
+
+Platform note:
+
+- **macOS:** `cmd` maps to Command.
+- **Windows/Linux:** `cmd` maps to Win/Super.
+- For app shortcuts that should work on Windows/Linux too, prefer `ctrl+...`.
+
+## Drag commands
+
+Drag moves the mouse while holding a button down. Coordinates are `x,y` pairs. The format is **`drag <from> <to> [cp]`** where `cp` is an optional quadratic bezier control point that curves the path.
+
+```bash
+# Straight line drag (2 points)
+usecomputer drag 100,200 500,600
+
+# Curved drag (3 points; cp pulls the curve toward it)
+usecomputer drag 100,200 500,600 300,50
+
+# With coord-map from a screenshot
+usecomputer drag 100,200 500,600 --coord-map "0,0,1600,900,1568,882"
+```
+
+Duration is computed automatically from **arc length** at about 500 px/s (average human drawing speed). Shorter drags are faster; longer drags take proportionally more time.
+
+### Bezier control point
+
+The optional third argument **`[cp]`** is a quadratic bezier control point. It pulls the curve toward itself. The cursor does not pass through it:
+
+```diagram
+  Straight (2 points)                         Curved (3 points)
+
+                                                      * cp
+  from ────────────────────────────────► to     from .´  `.
+                                                    ´      `.
+                                                   ´         to
+```
+
+### Drawing circles and ellipses
+
+A circle at center `(cx, cy)` with radius `r` uses **4 quadratic bezier arcs**. Each arc goes between two cardinal points (top, right, bottom, left), with the control point at the bounding box corner between them:
+
+```diagram
+                    top
+                     ●
+              cp TL / \ cp TR
+                   /   \
+             left ●     ● right
+                   \   /
+              cp BL \ / cp BR
+                     ●
+                   bottom
+```
+
+```bash
+# Circle at center (400, 300) radius 50
+usecomputer drag 400,250 450,300 450,250   # top → right,    cp = top-right corner
+usecomputer drag 450,300 400,350 450,350   # right → bottom, cp = bottom-right corner
+usecomputer drag 400,350 350,300 350,350   # bottom → left,  cp = bottom-left corner
+usecomputer drag 350,300 400,250 350,250   # left → top,     cp = top-left corner
+```
+
+The pattern for any circle:
+
+```
+drag cx,cy-r   cx+r,cy   cx+r,cy-r    # top → right
+drag cx+r,cy   cx,cy+r   cx+r,cy+r    # right → bottom
+drag cx,cy+r   cx-r,cy   cx-r,cy+r    # bottom → left
+drag cx-r,cy   cx,cy-r   cx-r,cy-r    # left → top
+```
+
+For an **ellipse**, use different `rx` and `ry` instead of `r`:
+
+```bash
+# Ellipse at center (400, 300) rx=30 ry=80
+usecomputer drag 400,220 430,300 430,220   # top → right
+usecomputer drag 430,300 400,380 430,380   # right → bottom
+usecomputer drag 400,380 370,300 370,380   # bottom → left
+usecomputer drag 370,300 400,220 370,220   # left → top
+```
+
+## Observe; global input event stream
+
+The **`observe`** command streams all mouse and keyboard events as **Server-Sent Events (SSE)** to stdout. It runs until interrupted with Ctrl+C.
+
+```bash
+usecomputer observe
+```
+
+```diagram
+  mouse / keyboard ──► CGEventTap ──► SSE stdout
+                                          │
+                                          ▼
+                                   event: mouseClick
+                                   data: { "x": 540, "y": 320, ... }
+```
+
+Output:
+
+```
+event: mouseClick
+data: {"type":"mouseClick","button":"left","x":540,"y":320,"timestamp":1719500000123}
+
+event: keyDown
+data: {"type":"keyDown","key":"a","keyCode":0,"timestamp":1719500000456}
+
+event: keyUp
+data: {"type":"keyUp","key":"a","keyCode":0,"timestamp":1719500000489}
+
+event: scroll
+data: {"type":"scroll","x":200,"y":300,"deltaX":0,"deltaY":-3,"timestamp":1719500000600}
+```
+
+Every event has a **`type`** field that doubles as the SSE event name and as a TypeScript discriminated union tag.
+
+### Event types
+
+| Type           | Fields                                    |
+| -------------- | ----------------------------------------- |
+| `mouseClick`   | `button`, `x`, `y`, `timestamp`           |
+| `mouseRelease` | `button`, `x`, `y`, `timestamp`           |
+| `mouseMove`    | `x`, `y`, `timestamp`                     |
+| `keyDown`      | `key`, `keyCode`, `timestamp`             |
+| `keyUp`        | `key`, `keyCode`, `timestamp`             |
+| `flagsChanged` | `key`, `keyCode`, `timestamp`             |
+| `scroll`       | `x`, `y`, `deltaX`, `deltaY`, `timestamp` |
+
+`flagsChanged` fires when **modifier keys** (Shift, Command, Option, Control, Fn) are pressed or released. The `key` field identifies which modifier, and `keyCode` is the macOS virtual keycode.
+
+The **`button`** field on mouse events is `"left"`, `"right"`, `"middle"`, or `"other"` (for side buttons).
+
+### TypeScript async generator
+
+The npm package exports a typed **`observe()`** function that spawns the native binary and yields events as a typed async generator:
+
+```ts
+import { observe } from 'usecomputer'
+
+for await (const event of observe()) {
+  if (event.type === 'keyDown') {
+    console.log(event.key, event.timestamp)
+  }
+  if (event.type === 'mouseClick') {
+    console.log(event.x, event.y, event.button)
+  }
+}
+```
+
+The generator kills the child process automatically when you **`break`** out of the loop. The `InputEvent` union type provides full autocomplete for each event shape.
+
+To stop observing from outside the loop, pass an **`AbortSignal`**:
+
+```ts
+const controller = new AbortController()
+
+setTimeout(() => controller.abort(), 5000) // stop after 5 seconds
+
+for await (const event of observe({ signal: controller.signal })) {
+  console.log(event.type)
+}
+```
+
+Consecutive **`mouseMove`** events are automatically coalesced so the queue stays bounded even if the consumer is slow.
+
+### Platform support
+
+Currently **macOS only**. Requires **Input Monitoring** permission (System Settings → Privacy & Security → Input Monitoring). This is the same permission needed for global event observation; click/type commands use Accessibility permission instead. Linux and Windows support is planned.
+
+## Kitty Graphics Protocol (agent-friendly screenshots)
+
+When the **`AGENT_GRAPHICS`** environment variable contains `kitty`, the `screenshot` command emits the PNG image inline to stdout using the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). This lets AI agents receive screenshots in a single tool call. No separate file read needed.
+
+```diagram
+  usecomputer screenshot ──► Kitty Graphics escape ──► kitty-graphics-agent
+                                                              │
+                                                              ▼
+                                                     image in model context
+```
+
+The protocol is supported by [kitty-graphics-agent](https://github.com/remorses/kitty-graphics-agent), an OpenCode plugin that intercepts Kitty Graphics escape sequences from CLI output and injects them as LLM-visible image attachments. To use it, add the plugin to your `opencode.json`:
+
+```json
+{
+  "plugin": ["kitty-graphics-agent"]
+}
+```
+
+The plugin sets **`AGENT_GRAPHICS=kitty`** in the shell environment automatically. When the agent runs `usecomputer screenshot`, the image appears directly in the model's context window.
+
+The JSON output includes **`"agentGraphics": true`** when the image was emitted inline, so programmatic consumers know the screenshot is already in context.
 
 ## OpenAI computer tool example
 
@@ -144,15 +454,13 @@ async function runComputerAction(action, coordMap) {
       text: action.text,
       delayMs: null,
     })
-}
+  }
 }
 ```
 
 ## Anthropic computer use example
 
-Anthropic's computer tool uses action names like `left_click`, `double_click`,
-`mouse_move`, `key`, `type`, `scroll`, and `screenshot`. `usecomputer`
-provides the execution layer for those actions.
+Anthropic's computer tool uses action names like `left_click`, `double_click`, `mouse_move`, `key`, `type`, `scroll`, and `screenshot`. **`usecomputer`** provides the execution layer for those actions.
 
 ```ts
 import fs from 'node:fs'
@@ -276,306 +584,21 @@ for (const block of message.content) {
 }
 ```
 
-## Screenshot scaling and coord-map
-
-`usecomputer screenshot` always scales the output image so the longest edge is
-at most `1568` px. This keeps screenshots in a model-friendly size for
-computer-use agents.
-
-Screenshot output includes:
-
-- `desktopIndex` (display index used for capture)
-- `coordMap` in the form `captureX,captureY,captureWidth,captureHeight,imageWidth,imageHeight`
-- `hint` with usage text for coordinate mapping
-
-Always pass the exact `--coord-map` value emitted by `usecomputer screenshot`
-to pointer commands when you are clicking coordinates from that screenshot.
-This maps screenshot-space coordinates back to real screen coordinates:
-
-```bash
-usecomputer screenshot ./shot.png --json
-usecomputer click -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
-usecomputer mouse move -x 100 -y 80 --coord-map "0,0,1600,900,1568,882"
-```
-
-To validate a target before clicking, use `debug-point`. It takes the same
-coordinates and `--coord-map`, captures a fresh full-desktop screenshot, and
-draws a red marker where the click would land. When `--coord-map` is present,
-it captures that same region so the overlay matches the screenshot you are
-targeting:
-
-```bash
-usecomputer debug-point -x 400 -y 220 --coord-map "0,0,1600,900,1568,882"
-```
-
-### Window-scoped screenshots
-
-Capture only a specific application window for a smaller, more focused image.
-This improves model accuracy because the screenshot contains only the target
-app — no dock, menu bar, or background windows.
-
-```bash
-# 1. find the window ID
-usecomputer window list --json
-
-# 2. screenshot that window
-usecomputer screenshot ./tmp/app.png --window 12345 --json
-# output: {"path":"./tmp/app.png","coordMap":"200,100,1200,800,1568,1045",...}
-
-# 3. click using the coord-map (maps window screenshot pixels to desktop coords)
-usecomputer click -x 400 -y 220 --coord-map "200,100,1200,800,1568,1045"
-```
-
-The coord-map from a window screenshot includes the window's position on
-screen, so pointer commands land on the correct desktop coordinates even
-though the screenshot only shows one window.
-
-## Kitty Graphics Protocol (agent-friendly screenshots)
-
-When the `AGENT_GRAPHICS` environment variable contains `kitty`, the
-`screenshot` command emits the PNG image inline to stdout using the
-[Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
-This lets AI agents receive screenshots in a single tool call — no separate
-file read needed.
-
-The protocol is supported by [kitty-graphics-agent](https://github.com/remorses/kitty-graphics-agent),
-an OpenCode plugin that intercepts Kitty Graphics escape sequences from CLI
-output and injects them as LLM-visible image attachments. To use it, add the
-plugin to your `opencode.json`:
-
-```json
-{
-  "plugin": ["kitty-graphics-agent"]
-}
-```
-
-The plugin sets `AGENT_GRAPHICS=kitty` in the shell environment automatically.
-When the agent runs `usecomputer screenshot`, the image appears directly in the
-model's context window.
-
-The JSON output includes `"agentGraphics": true` when the image was emitted
-inline, so programmatic consumers know the screenshot is already in context.
-
-## Drag commands
-
-Drag moves the mouse while holding a button down. Coordinates are `x,y` pairs.
-The format is `drag <from> <to> [cp]` where `cp` is an optional quadratic
-bezier control point that curves the path.
-
-```bash
-# Straight line drag (2 points)
-usecomputer drag 100,200 500,600
-
-# Curved drag (3 points — cp pulls the curve toward it)
-usecomputer drag 100,200 500,600 300,50
-
-# With coord-map from a screenshot
-usecomputer drag 100,200 500,600 --coord-map "0,0,1600,900,1568,882"
-```
-
-Duration is computed automatically from arc length at ~500 px/s (average human
-drawing speed). Shorter drags are faster, longer drags take proportionally more
-time.
-
-### Bezier control point
-
-The optional third argument `[cp]` is a quadratic bezier control point. It
-"pulls" the curve toward itself — the cursor does NOT pass through it:
-
-```
-Straight (2 points):           Curved (3 points):
-
-                                        * cp
-from ──────────────── to        from . ´  ` .
-                                    ´        ` .
-                                   ´            to
-```
-
-### Drawing circles and ellipses
-
-A circle at center `(cx, cy)` with radius `r` uses 4 quadratic bezier arcs.
-Each arc goes between two cardinal points (top, right, bottom, left), with the
-control point at the bounding box corner between them:
-
-```bash
-# Circle at center (400, 300) radius 50
-usecomputer drag 400,250 450,300 450,250   # top → right,    cp = top-right corner
-usecomputer drag 450,300 400,350 450,350   # right → bottom, cp = bottom-right corner
-usecomputer drag 400,350 350,300 350,350   # bottom → left,  cp = bottom-left corner
-usecomputer drag 350,300 400,250 350,250   # left → top,     cp = top-left corner
-```
-
-The pattern for any circle:
-
-```
-drag cx,cy-r   cx+r,cy   cx+r,cy-r    # top → right
-drag cx+r,cy   cx,cy+r   cx+r,cy+r    # right → bottom
-drag cx,cy+r   cx-r,cy   cx-r,cy+r    # bottom → left
-drag cx-r,cy   cx,cy-r   cx-r,cy-r    # left → top
-```
-
-For an ellipse, use different `rx` and `ry` instead of `r`:
-
-```bash
-# Ellipse at center (400, 300) rx=30 ry=80
-usecomputer drag 400,220 430,300 430,220   # top → right
-usecomputer drag 430,300 400,380 430,380   # right → bottom
-usecomputer drag 400,380 370,300 370,380   # bottom → left
-usecomputer drag 370,300 400,220 370,220   # left → top
-```
-
-## Keyboard commands
-
-### Type text
-
-```bash
-# Short text
-usecomputer type "hello from usecomputer"
-
-# Type from stdin (good for multiline or very long text)
-cat ./notes.txt | usecomputer type --stdin --chunk-size 4000 --chunk-delay 15
-
-# Simulate slower typing for apps that drop fast input
-usecomputer type "hello" --delay 20
-```
-
-`--delay` is the per-character delay in milliseconds.
-
-For very long text, prefer `--stdin` + `--chunk-size` so shell argument limits
-and app input buffers are less likely to cause dropped characters.
-
-### Press keys and shortcuts
-
-```bash
-# Single key
-usecomputer press "enter"
-
-# Chords
-usecomputer press "cmd+s"
-usecomputer press "cmd+shift+p"
-usecomputer press "ctrl+s"
-
-# Repeats
-usecomputer press "down" --count 10 --delay 30
-```
-
-Modifier aliases: `cmd`/`command`/`meta`, `ctrl`/`control`, `alt`/`option`,
-`shift`, `fn`.
-
-Platform note:
-
-- macOS: `cmd` maps to Command.
-- Windows/Linux: `cmd` maps to Win/Super.
-- For app shortcuts that should work on Windows/Linux too, prefer `ctrl+...`.
-
-## Observe — global input event stream
-
-The `observe` command streams all mouse and keyboard events as
-**Server-Sent Events (SSE)** to stdout. It runs until interrupted with
-Ctrl+C.
-
-```bash
-usecomputer observe
-```
-
-Output:
-
-```
-event: mouseClick
-data: {"type":"mouseClick","button":"left","x":540,"y":320,"timestamp":1719500000123}
-
-event: keyDown
-data: {"type":"keyDown","key":"a","keyCode":0,"timestamp":1719500000456}
-
-event: keyUp
-data: {"type":"keyUp","key":"a","keyCode":0,"timestamp":1719500000489}
-
-event: scroll
-data: {"type":"scroll","x":200,"y":300,"deltaX":0,"deltaY":-3,"timestamp":1719500000600}
-```
-
-Every event has a `type` field that doubles as the SSE event name and as a
-TypeScript discriminated union tag.
-
-### Event types
-
-| Type | Fields |
-|------|--------|
-| `mouseClick` | `button`, `x`, `y`, `timestamp` |
-| `mouseRelease` | `button`, `x`, `y`, `timestamp` |
-| `mouseMove` | `x`, `y`, `timestamp` |
-| `keyDown` | `key`, `keyCode`, `timestamp` |
-| `keyUp` | `key`, `keyCode`, `timestamp` |
-| `flagsChanged` | `key`, `keyCode`, `timestamp` |
-| `scroll` | `x`, `y`, `deltaX`, `deltaY`, `timestamp` |
-
-`flagsChanged` fires when modifier keys (Shift, Command, Option, Control,
-Fn) are pressed or released. The `key` field identifies which modifier, and
-`keyCode` is the macOS virtual keycode.
-
-The `button` field on mouse events is `"left"`, `"right"`, `"middle"`, or
-`"other"` (for side buttons).
-
-### TypeScript async generator
-
-The npm package exports a typed `observe()` function that spawns the native
-binary and yields events as a typed async generator:
-
-```ts
-import { observe } from 'usecomputer'
-
-for await (const event of observe()) {
-  if (event.type === 'keyDown') {
-    console.log(event.key, event.timestamp)
-  }
-  if (event.type === 'mouseClick') {
-    console.log(event.x, event.y, event.button)
-  }
-}
-```
-
-The generator kills the child process automatically when you `break` out of
-the loop. The `InputEvent` union type provides full autocomplete for each
-event shape.
-
-To stop observing from outside the loop, pass an `AbortSignal`:
-
-```ts
-const controller = new AbortController()
-
-setTimeout(() => controller.abort(), 5000) // stop after 5 seconds
-
-for await (const event of observe({ signal: controller.signal })) {
-  console.log(event.type)
-}
-```
-
-Consecutive `mouseMove` events are automatically coalesced so the queue
-stays bounded even if the consumer is slow.
-
-### Platform support
-
-Currently **macOS only**. Requires **Input Monitoring** permission (System
-Settings → Privacy & Security → Input Monitoring). This is the same
-permission needed for global event observation; click/type commands use
-Accessibility permission instead. Linux and Windows support is planned.
-
 ## Coordinate options
 
-Commands that target coordinates accept `-x` and `-y` flags:
+Commands that target coordinates accept **`-x`** and **`-y`** flags:
 
 - `usecomputer click -x <n> -y <n>`
 - `usecomputer hover -x <n> -y <n>`
 - `usecomputer mouse move -x <n> -y <n>`
 
-`mouse move` is optional before `click` when click coordinates are already
-provided.
+`mouse move` is optional before `click` when click coordinates are already provided.
 
 Legacy coordinate forms are also accepted where available.
 
 ## Display index options
 
-For commands that accept `--display`, the index is 0-based:
+For commands that accept **`--display`**, the index is 0-based:
 
 - `0` = first display
 - `1` = second display
